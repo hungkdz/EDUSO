@@ -2,7 +2,7 @@
   "ABC123": {
     "status": "active",
     "expiresAt": "2025-12-31",
-    "hwid": null
+    "hwid": "hw_1808929248"
   },
   "XYZ789": {
     "status": "active",
