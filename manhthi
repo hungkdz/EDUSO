@@ -1,0 +1,112 @@
+(async function() {
+    'use strict';
+
+    // --- HWID generator ---
+    function generateHWID(length = 16) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+    }
+
+    let hwid = GM_getValue("hwid", null);
+    if (!hwid || !hwid.trim()) {
+        hwid = generateHWID();
+        GM_setValue("hwid", hwid);
+    }
+
+    async function checkKey(key, hwid) {
+        try {
+            const res = await fetch("https://eduso-license.edusoauto-license.workers.dev/check", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key, hwid })
+            });
+            return await res.json();
+        } catch (err) {
+            return { ok: false, msg: "Lỗi kết nối: " + err.message };
+        }
+    }
+
+    // --- Kiểm tra trước khi render UI ---
+    const savedKey = GM_getValue("license_key", null);
+    let valid = false;
+    if (savedKey) {
+        const result = await checkKey(savedKey, hwid);
+        if (result.ok) valid = true;
+    }
+
+    if (!valid) {
+        // Render overlay nếu chưa có key hoặc key sai
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position:fixed;top:0;left:0;width:100%;height:100%;
+            background:rgba(0,0,0,0.95);z-index:99999;
+            display:flex;align-items:center;justify-content:center;
+            font-family:Segoe UI,sans-serif;color:#fff;
+        `;
+        overlay.innerHTML = `
+            <div style="background:#1a0033;padding:30px;border-radius:12px;width:420px;text-align:center;box-shadow:0 0 40px rgba(255,0,255,0.7);">
+                <h3 style="color:#ff00ff;margin-bottom:20px;"Nhập Key vào</h3>
+                <input id="licenseInput" type="text" placeholder="Nhập key..."
+                    style="width:100%;padding:12px;border-radius:6px;border:none;margin-bottom:15px;font-size:16px;">
+                <button id="licenseBtn"
+                    style="width:100%;padding:12px;background:#00ffea;color:#000;font-weight:bold;border:none;border-radius:6px;cursor:pointer;">
+                    XÁC NHẬN
+                </button>
+                <div id="licenseMsg" style="margin-top:15px;font-size:14px;color:#ccc;"></div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const licenseBtn = document.getElementById('licenseBtn');
+        const licenseInput = document.getElementById('licenseInput');
+        const licenseMsg = document.getElementById('licenseMsg');
+
+        async function activateKey(key) {
+            const result = await checkKey(key, hwid);
+            if (result.ok) {
+                GM_setValue("license_key", key);
+                licenseMsg.textContent = `✅ ${result.msg}`;
+                overlay.style.display = 'none';
+                // Sau khi key hợp lệ, load AUTO và RCD
+                loadExternalScripts();
+            } else {
+                licenseMsg.textContent = "❌ " + result.msg;
+            }
+        }
+
+        licenseBtn.onclick = async () => {
+            const key = licenseInput.value.trim();
+            if (!key) { licenseMsg.textContent = "❌ Vui lòng nhập key!"; return; }
+            licenseMsg.textContent = "Đang kiểm tra...";
+            await activateKey(key);
+        };
+    } else {
+        // Key hợp lệ ngay từ đầu → load AUTO và RCD luôn
+        loadExternalScripts();
+    }
+
+    // --- Hàm tải link raw trực tiếp ---
+    function loadExternalScripts() {
+        const urls = [
+            "https://raw.githubusercontent.com/hungkdz/EDUSO/refs/heads/main/AUTO",
+            "https://raw.githubusercontent.com/hungkdz/EDUSO/refs/heads/main/RCD"
+        ];
+        urls.forEach(url => {
+            GM_xmlhttpRequest({
+                method: "GET",
+                url: url,
+                onload: function(res) {
+                    try {
+                        eval(res.responseText);;
+                    } catch (e) {
+                    }
+                }
+            });
+        });
+    }
+
+})();
