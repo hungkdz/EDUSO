@@ -1,0 +1,701 @@
+(function() {
+    'use strict';
+
+    const STORAGE_KEY = 'eduso_auto_state';
+    const ANSWER_KEY = 'eduso_current_answers';
+    const HOME_URL = 'https://eduso.vn/thcs-chau-can/student';
+
+    // ============================================
+    // PHẦN 1: TRANG CHỦ - Quét và bắt đầu
+    // ============================================
+    if (location.href === HOME_URL) {
+        initHomePage();
+    }
+
+    // ============================================
+    // PHẦN 2: TRANG LÀM BÀI - Xử lý 2 trường hợp
+    // ============================================
+    else if (location.pathname.includes('/practice/detail/')) {
+        initPracticePage();
+    }
+
+    // ============================================
+    // PHẦN 3: TRANG ĐÁP ÁN - Quét đáp án và quay lại
+    // ============================================
+    else if (location.pathname.includes('/Practice/ReviewLessonExam/')) {
+        initReviewPage();
+    }
+
+    // ================================================
+    // TRANG CHỦ: UI + Quét bài + Bắt đầu tự động
+    // ================================================
+    function initHomePage() {
+        // XÓA CÁC FLAG CŨ KHI VỀ TRANG CHỦ
+        cleanupSessionFlags();
+
+        createUI();
+
+        const state = getState();
+        if (state && state.isRunning) {
+            // Tiếp tục từ bài tiếp theo
+            setTimeout(() => {
+                continueAutoProcess();
+            }, 1000);
+        }
+    }
+
+    function cleanupSessionFlags() {
+        // Xóa tất cả các flag tạm thời khi về trang chủ
+        sessionStorage.removeItem('eduso_auto_fill');
+        sessionStorage.removeItem('eduso_practice_url');
+        sessionStorage.removeItem(ANSWER_KEY);
+        console.log('[AUTO] 🧹 Đã xóa các flag session cũ');
+    }
+
+    function createUI() {
+        const btn = document.createElement('button');
+        btn.id = 'edusoFullAutoBtn';
+        btn.innerHTML = '🚀 Tự Động LÀM TOÀN BỘ BÀI';
+        btn.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 999999;
+            padding: 12px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; border-radius: 8px;
+            font-weight: bold; cursor: pointer; font-size: 14px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            font-family: sans-serif; transition: all 0.3s;
+        `;
+        btn.onmouseenter = () => btn.style.transform = 'scale(1.05)';
+        btn.onmouseleave = () => btn.style.transform = 'scale(1)';
+        document.body.appendChild(btn);
+
+        // Panel hiển thị trạng thái
+        const panel = document.createElement('div');
+        panel.id = 'edusoAutoPanel';
+        panel.style.cssText = `
+            position: fixed; top: 70px; right: 20px; width: 320px;
+            background: rgba(10, 10, 30, 0.95); backdrop-filter: blur(10px);
+            color: white; padding: 16px; border-radius: 12px;
+            z-index: 999998; font-family: sans-serif; display: none;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        `;
+        panel.innerHTML = `
+            <h3 style="margin: 0 0 12px; color: #667eea;">📊 Trạng Thái Tự Động</h3>
+            <div id="autoStatus" style="font-size: 13px; line-height: 1.8;">
+                <div>Tổng bài: <span id="totalCount" style="color: #ffd93d; font-weight: bold;">0</span></div>
+                <div>Cần làm: <span id="pendingCount" style="color: #ff6b6b; font-weight: bold;">0</span></div>
+                <div>Đã hoàn thành: <span id="doneCount" style="color: #51cf66; font-weight: bold;">0</span></div>
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <div style="color: #aaa; font-size: 11px; margin-bottom: 4px;">Đang xử lý:</div>
+                    <div id="currentTask" style="color: #ffd93d; font-weight: bold; font-size: 13px;">Chưa bắt đầu</div>
+                </div>
+            </div>
+            <button id="stopAutoBtn" style="
+                width: 100%; margin-top: 12px; padding: 10px;
+                background: #ff6b6b; color: white; border: none;
+                border-radius: 6px; font-weight: bold; cursor: pointer;
+                display: none; transition: all 0.3s;
+            ">⏸ DỪNG LẠI</button>
+        `;
+        document.body.appendChild(panel);
+
+        btn.onclick = () => {
+            startAutoProcess();
+        };
+
+        const stopBtn = document.getElementById('stopAutoBtn');
+        stopBtn.onclick = () => {
+            stopAutoProcess();
+        };
+        stopBtn.onmouseenter = () => stopBtn.style.background = '#ff5252';
+        stopBtn.onmouseleave = () => stopBtn.style.background = '#ff6b6b';
+    }
+
+    function startAutoProcess() {
+        const lessons = scanAllLessons();
+        const pending = lessons.filter(l => l.type === 'pending');
+
+        if (pending.length === 0) {
+            alert('✅ Tất cả bài đã hoàn thành!');
+            return;
+        }
+
+        const state = {
+            isRunning: true,
+            lessons: lessons,
+            currentIndex: 0,
+            totalCount: lessons.length,
+            pendingCount: pending.length,
+            doneCount: lessons.length - pending.length
+        };
+
+        saveState(state);
+
+        const panel = document.getElementById('edusoAutoPanel');
+        panel.style.display = 'block';
+
+        document.getElementById('stopAutoBtn').style.display = 'block';
+        updateStatusUI(state);
+
+        // Bắt đầu với bài đầu tiên
+        processNextLesson(state);
+    }
+
+    function continueAutoProcess() {
+        const state = getState();
+        if (!state || !state.isRunning) return;
+
+        const panel = document.getElementById('edusoAutoPanel');
+        panel.style.display = 'block';
+        document.getElementById('stopAutoBtn').style.display = 'block';
+
+        // Quét lại để cập nhật trạng thái mới
+        const lessons = scanAllLessons();
+        state.lessons = lessons;
+        state.doneCount = lessons.filter(l => l.type === 'done').length;
+        state.pendingCount = lessons.filter(l => l.type === 'pending').length;
+
+        saveState(state);
+        updateStatusUI(state);
+
+        // Tìm bài tiếp theo cần làm
+        setTimeout(() => {
+            processNextLesson(state);
+        }, 500);
+    }
+
+    function processNextLesson(state) {
+        // Tìm bài tiếp theo chưa làm
+        let nextLesson = null;
+        let nextIndex = -1;
+
+        for (let i = 0; i < state.lessons.length; i++) {
+            if (state.lessons[i].type === 'pending') {
+                nextLesson = state.lessons[i];
+                nextIndex = i;
+                break;
+            }
+        }
+
+        if (!nextLesson) {
+            // Hoàn thành tất cả
+            finishAutoProcess();
+            return;
+        }
+
+        // Cập nhật state
+        state.currentIndex = nextIndex;
+        state.currentLesson = nextLesson.title;
+        saveState(state);
+
+        // Cập nhật UI
+        document.getElementById('currentTask').textContent = `${nextLesson.title}`;
+
+        console.log(`[AUTO] 🎯 Bắt đầu xử lý bài ${nextIndex + 1}/${state.totalCount}: ${nextLesson.title}`);
+
+        // Mở bài
+        setTimeout(() => {
+            const items = document.querySelectorAll('div.flex.cursor-pointer');
+            const targetElement = items[nextIndex];
+            if (targetElement) {
+                targetElement.click();
+                console.log(`[AUTO] ✅ Đã click mở bài: ${nextLesson.title}`);
+            } else {
+                console.error('[AUTO] ❌ Không tìm thấy element bài tập');
+            }
+        }, 800);
+    }
+
+    function scanAllLessons() {
+        const items = document.querySelectorAll('div.flex.cursor-pointer');
+        const lessons = [];
+
+        items.forEach((el, idx) => {
+            const titleEl = el.querySelector('div.text-base');
+            const statusEl = el.querySelector('span.text-sm.font-bold');
+            if (!titleEl || !statusEl) return;
+
+            const title = titleEl.textContent.trim();
+            let statusText = statusEl.textContent.trim();
+
+            let score = null;
+            let type = '';
+
+            if (statusText === 'Chưa thực hiện') {
+                score = 0;
+                type = 'pending';
+            } else if (/^\d+\.\d+$/.test(statusText)) {
+                score = parseFloat(statusText);
+                type = score <= 3.0 ? 'pending' : 'done';
+            } else {
+                type = 'unknown';
+            }
+
+            lessons.push({ index: idx, title, score, type });
+        });
+
+        return lessons;
+    }
+
+    function updateStatusUI(state) {
+        document.getElementById('totalCount').textContent = state.totalCount;
+        document.getElementById('pendingCount').textContent = state.pendingCount;
+        document.getElementById('doneCount').textContent = state.doneCount;
+        if (state.currentLesson) {
+            document.getElementById('currentTask').textContent = state.currentLesson;
+        }
+    }
+
+    function stopAutoProcess() {
+        clearState();
+        const panel = document.getElementById('edusoAutoPanel');
+        panel.style.display = 'none';
+        alert('⏸ Đã dừng quá trình tự động');
+        location.reload();
+    }
+
+    function finishAutoProcess() {
+        clearState();
+        document.getElementById('currentTask').textContent = '✅ Hoàn thành tất cả!';
+        document.getElementById('stopAutoBtn').style.display = 'none';
+        setTimeout(() => {
+            alert('🎉 Đã hoàn thành tất cả bài tập!');
+            location.reload();
+        }, 1000);
+    }
+
+    // ================================================
+    // TRANG LÀM BÀI: 2 TRƯỜNG HỢP
+    // ================================================
+    function initPracticePage() {
+        console.log('[AUTO] 📝 Đang ở trang làm bài');
+
+        // Kiểm tra xem có phải quay lại để điền đáp án không
+        const shouldFillAnswer = sessionStorage.getItem('eduso_auto_fill');
+
+        if (shouldFillAnswer === 'true') {
+            console.log('[AUTO] ✏️ CHẾ ĐỘ: Điền đáp án và hoàn thành');
+            handleFillAnswersMode();
+        } else {
+            console.log('[AUTO] 📖 CHẾ ĐỘ: Lấy đáp án');
+            // Lưu link trang làm bài
+            const practiceURL = location.href;
+            sessionStorage.setItem('eduso_practice_url', practiceURL);
+            console.log('[AUTO] 💾 Đã lưu link làm bài:', practiceURL);
+
+            handleGetAnswersMode();
+        }
+    }
+
+    // CHẾ ĐỘ 1: LẤY ĐÁP ÁN (lần đầu vào trang)
+    function handleGetAnswersMode() {
+        interceptConsoleReady();
+    }
+
+    function interceptConsoleReady() {
+        const originalLog = console.log;
+        let hasStarted = false;
+
+        console.log = function(...args) {
+            originalLog(...args);
+
+            if (hasStarted) return;
+
+            if (args.some(a => typeof a === 'string' && a.includes('ready!'))) {
+                hasStarted = true;
+                console.log('[AUTO] ✅ Phát hiện ready!');
+
+                setTimeout(() => {
+                    tryGetAnswers();
+                }, 800);
+            }
+        };
+
+        // Backup: nếu không thấy ready sau 5s
+        setTimeout(() => {
+            if (!hasStarted) {
+                hasStarted = true;
+                console.log('[AUTO] ⏰ Timeout - bắt đầu xử lý');
+                tryGetAnswers();
+            }
+        }, 5000);
+    }
+
+    async function tryGetAnswers() {
+        // Tìm nút "Xem đáp án"
+        const answerBtn = findAnswerButton();
+
+        if (answerBtn) {
+            console.log('[AUTO] ✅ Tìm thấy "Xem đáp án" - click ngay');
+            clickAnswerButton(answerBtn);
+        } else {
+            console.log('[AUTO] ⚠️ Không có "Xem đáp án" - thực hiện quy trình làm bài để mở khóa');
+            await performExamFlowToUnlock();
+        }
+    }
+
+    function findAnswerButton() {
+        return Array.from(document.querySelectorAll('div, button, a, span, li'))
+            .find(el => el.textContent?.trim() === 'Xem đáp án');
+    }
+
+    function clickAnswerButton(btn) {
+        const onclick = btn.getAttribute('onclick') || '';
+        const match = onclick.match(/Review\('([^']+)'\)/);
+
+        if (match) {
+            const id = match[1];
+            const reviewURL = `/thcs-chau-can/student/Practice/ReviewLessonExam/${id}`;
+            console.log('[AUTO] 🔀 Redirect đến trang đáp án:', reviewURL);
+            window.location.href = reviewURL;
+        } else {
+            btn.click();
+            console.log('[AUTO] 🔀 Click nút "Xem đáp án"');
+        }
+    }
+
+    async function performExamFlowToUnlock() {
+        console.log('[AUTO] 🎯 Bắt đầu quy trình làm bài để mở đáp án');
+
+        // Tick checkbox
+        const chk = document.getElementById('chkUsage');
+        if (chk && !chk.checked) {
+            chk.checked = true;
+            chk.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof toggleDoButton === 'function') toggleDoButton();
+            console.log('[AUTO] ✅ Đã tick checkbox');
+            await delay(300);
+        }
+
+        // Click "Làm bài" lần 1
+        const btn1 = document.getElementById('btn-doExam');
+        if (btn1 && !btn1.disabled) {
+            btn1.click();
+            console.log('[AUTO] ✅ Click "Làm bài" lần 1');
+            await delay(800);
+        }
+
+        // Click "Làm bài" lần 2
+        const btn2 = Array.from(document.querySelectorAll('a[onclick*="doExamCode"]'))
+            .find(el => el.textContent?.trim() === 'Làm bài');
+        if (btn2) {
+            btn2.click();
+            console.log('[AUTO] ✅ Click "Làm bài" lần 2');
+            await delay(1000);
+        }
+
+        // Click "Nộp bài"
+        const submitBtn = document.querySelector('button.btnComplete[onclick*="CompleteExam"]');
+        if (submitBtn) {
+            submitBtn.click();
+            console.log('[AUTO] ✅ Click "Nộp bài"');
+            await delay(1200);
+        }
+
+        // Xác nhận popup lần 1
+        await clickConfirmPopup('xác nhận lần 1');
+        await delay(700);
+
+        // Xác nhận popup lần 2
+        await clickConfirmPopup('xác nhận lần 2');
+
+        console.log('[AUTO] ✅ Hoàn thành quy trình - chờ chuyển đến đáp án');
+    }
+
+    async function clickConfirmPopup(label) {
+        for (let i = 0; i < 10; i++) {
+            const btn = document.querySelector('.swal2-container .swal2-confirm');
+            if (btn) {
+                await delay(250);
+                btn.click();
+                console.log(`[AUTO] ✅ Click ${label}`);
+                return true;
+            }
+            await delay(300);
+        }
+        console.log(`[AUTO] ⭕ Không thấy ${label}`);
+        return false;
+    }
+
+    // CHẾ ĐỘ 2: ĐIỀN ĐÁP ÁN VÀ HOÀN THÀNH
+    async function handleFillAnswersMode() {
+        console.log('[AUTO] 🔄 Chờ trang sẵn sàng để điền đáp án...');
+
+        // Chờ trang load xong
+        await delay(1500);
+
+        // KIỂM TRA ĐIỂM SỐ - Nếu đã đạt > 3.0 thì bỏ qua
+        const currentScore = checkCurrentScore();
+        if (currentScore !== null && currentScore > 3.0) {
+            console.log(`[AUTO] ✅ Bài đã đạt ${currentScore} điểm - Bỏ qua và quay về trang chủ`);
+
+            // Xóa flag và quay về
+            sessionStorage.removeItem('eduso_auto_fill');
+            sessionStorage.removeItem('eduso_practice_url');
+            sessionStorage.removeItem(ANSWER_KEY);
+
+            await delay(1000);
+            window.location.href = HOME_URL;
+            return;
+        }
+
+        console.log('[AUTO] 📝 Điểm chưa đạt hoặc chưa làm - Tiếp tục làm bài');
+
+        // Lấy đáp án đã lưu
+        const answersJSON = sessionStorage.getItem(ANSWER_KEY);
+        if (!answersJSON) {
+            console.error('[AUTO] ❌ Không tìm thấy đáp án đã lưu!');
+            alert('❌ Lỗi: Không tìm thấy đáp án');
+            return;
+        }
+
+        const ANSWERS = JSON.parse(answersJSON);
+        console.log('[AUTO] ✅ Đã load', ANSWERS.length, 'đáp án:', ANSWERS);
+
+        // THỰC HIỆN QUY TRÌNH LÀM LẠI BÀI
+        console.log('[AUTO] 🔄 Bắt đầu quy trình làm lại bài...');
+
+        // Bước 1: Tick checkbox
+        const chk = document.getElementById('chkUsage');
+        if (chk && !chk.checked) {
+            chk.checked = true;
+            chk.dispatchEvent(new Event('change', { bubbles: true }));
+            if (typeof toggleDoButton === 'function') toggleDoButton();
+            console.log('[AUTO] ✅ Đã tick checkbox');
+            await delay(500);
+        }
+
+        // Bước 2: Click "Làm bài" lần 1
+        const btn1 = document.getElementById('btn-doExam');
+        if (btn1 && !btn1.disabled) {
+            btn1.click();
+            console.log('[AUTO] ✅ Click "Làm bài" lần 1');
+            await delay(1000);
+        }
+
+        // Bước 3: Click "Làm bài" lần 2 (popup confirmation)
+        const btn2 = Array.from(document.querySelectorAll('a[onclick*="doExamCode"]'))
+            .find(el => el.textContent?.trim() === 'Làm bài');
+        if (btn2) {
+            btn2.click();
+            console.log('[AUTO] ✅ Click "Làm bài" lần 2 (popup)');
+            await delay(1500);
+        }
+
+        // Bước 4: ĐIỀN ĐÁP ÁN
+        await autoFillAnswers(ANSWERS);
+
+        // XÓA TẤT CẢ FLAG SAU KHI HOÀN THÀNH
+        console.log('[AUTO] 🧹 Xóa các flag sau khi hoàn thành bài');
+        sessionStorage.removeItem('eduso_auto_fill');
+        sessionStorage.removeItem('eduso_practice_url');
+        sessionStorage.removeItem(ANSWER_KEY);
+
+        // Sau khi điền xong, quay về trang chủ
+        console.log('[AUTO] 🏠 Quay về trang chủ để tiếp tục bài tiếp theo...');
+        await delay(2000);
+        window.location.href = HOME_URL;
+    }
+
+    // Hàm kiểm tra điểm số hiện tại trên trang làm bài
+    function checkCurrentScore() {
+        try {
+            // Tìm tất cả các <td> có style="user-select: text;"
+            const tdElements = Array.from(document.querySelectorAll('td[style*="user-select: text"]'));
+
+            if (tdElements.length >= 4) {
+                // Hàng thứ 4 (index 3) chứa điểm số
+                const scoreText = tdElements[3].textContent.trim();
+                const score = parseFloat(scoreText);
+
+                if (!isNaN(score)) {
+                    console.log(`[AUTO] 📊 Phát hiện điểm số hiện tại: ${score}`);
+                    return score;
+                }
+            }
+
+            console.log('[AUTO] ⚠️ Không tìm thấy điểm số');
+            return null;
+        } catch (e) {
+            console.error('[AUTO] ❌ Lỗi khi kiểm tra điểm:', e);
+            return null;
+        }
+    }
+
+    async function autoFillAnswers(ANSWERS) {
+        console.log('[AUTO] ✏️ Bắt đầu điền', ANSWERS.length, 'đáp án');
+
+        const questions = document.querySelectorAll('.quiz-item');
+        const total = questions.length;
+        const speed = 400; // ms giữa mỗi câu
+
+        let idx = 0;
+
+        for (let i = 0; i < questions.length; i++) {
+            const q = questions[i];
+
+            // Bỏ qua câu QUIZ3 (nếu có)
+            if (q.querySelector('.answer-pane')?.dataset.type === 'QUIZ3') {
+                console.log(`[AUTO] ⭕ Bỏ qua câu ${i + 1} (QUIZ3)`);
+                continue;
+            }
+
+            const ans = (ANSWERS[idx++] || '').trim();
+            if (!ans) {
+                console.log(`[AUTO] ⚠️ Câu ${i + 1}: Không có đáp án`);
+                continue;
+            }
+
+            console.log(`[AUTO] 📝 Câu ${i + 1}/${total}: Điền "${ans}"`);
+
+            let success = false;
+
+            // Nếu là đáp án trắc nghiệm (A. B. C. D.)
+            if (ans.endsWith('.')) {
+                for (const fc of q.querySelectorAll('.form-check')) {
+                    const lbl = fc.querySelector('label.answer-text');
+                    if (lbl && lbl.textContent.trim().startsWith(ans)) {
+                        success = safeClick(fc);
+                        if (success) {
+                            console.log(`[AUTO] ✅ Đã chọn ${ans}`);
+                        }
+                        break;
+                    }
+                }
+            }
+            // Nếu là đáp án điền (fill-in)
+            else {
+                const span = q.querySelector('span.fillquiz[contenteditable]');
+                if (span) {
+                    span.innerText = ans;
+                    span.dispatchEvent(new Event('input', { bubbles: true }));
+                    span.dispatchEvent(new Event('blur', { bubbles: true }));
+                    success = true;
+                    console.log(`[AUTO] ✅ Đã điền text "${ans}"`);
+                }
+            }
+
+            if (!success) {
+                console.log(`[AUTO] ⚠️ Không thể điền câu ${i + 1}`);
+            }
+
+            // Delay giữa các câu
+            await delay(speed);
+        }
+
+        console.log('[AUTO] ✅ Hoàn thành điền tất cả đáp án');
+
+        // NỘP BÀI
+        await delay(1000);
+        console.log('[AUTO] 📤 Bắt đầu nộp bài...');
+
+        const submitBtn = document.querySelector('button.btnComplete[onclick*="CompleteExam"]');
+        if (submitBtn) {
+            submitBtn.click();
+            console.log('[AUTO] ✅ Click "Nộp bài"');
+            await delay(1200);
+
+            // Xác nhận popup
+            await clickConfirmPopup('xác nhận nộp bài lần 1');
+            await delay(700);
+            await clickConfirmPopup('xác nhận nộp bài lần 2');
+
+            console.log('[AUTO] ✅ Đã nộp bài thành công');
+        } else {
+            console.error('[AUTO] ❌ Không tìm thấy nút nộp bài');
+        }
+    }
+
+    function safeClick(el) {
+        if (!el) return false;
+        try {
+            el.click();
+            return true;
+        } catch {
+            const radio = el.querySelector('input[type="radio"]');
+            if (radio) {
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+                radio.dispatchEvent(new Event('click', { bubbles: true }));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ================================================
+    // TRANG ĐÁP ÁN: Quét đáp án và quay lại
+    // ================================================
+    function initReviewPage() {
+        console.log('[AUTO] 📖 Đang ở trang đáp án - bắt đầu quét');
+
+        setTimeout(() => {
+            const answers = scanAnswers();
+            console.log('[AUTO] ✅ Đã quét được', answers.length, 'đáp án:', answers);
+
+            // Lưu đáp án
+            sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answers));
+
+            // Quay lại trang làm bài
+            const practiceURL = sessionStorage.getItem('eduso_practice_url');
+            if (practiceURL) {
+                console.log('[AUTO] 🔙 Quay lại trang làm bài để điền đáp án:', practiceURL);
+                sessionStorage.setItem('eduso_auto_fill', 'true'); // Đánh dấu chế độ điền
+                window.location.href = practiceURL;
+            } else {
+                console.error('[AUTO] ❌ Không tìm thấy link trang làm bài đã lưu');
+                alert('❌ Lỗi: Không tìm thấy link trang làm bài');
+            }
+        }, 2000);
+    }
+
+    function scanAnswers() {
+        const answers = [];
+        const nodes = document.querySelectorAll('span.text-success, fillquiz i.text-success, fillquiz span.text-success');
+
+        nodes.forEach(el => {
+            let text = el.textContent.trim();
+            if (!text || text.includes('Không có')) return;
+            if (text.includes('|')) text = text.split('|')[0].trim();
+
+            if (el.tagName === 'SPAN' && /^[A-D][\.\)\s]/i.test(text)) {
+                answers.push(text.charAt(0).toUpperCase() + ".");
+            } else {
+                answers.push(text);
+            }
+        });
+
+        return answers;
+    }
+
+    // ================================================
+    // STORAGE & HELPER FUNCTIONS
+    // ================================================
+    function saveState(state) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+            console.error('[AUTO] ❌ Lỗi lưu state:', e);
+        }
+    }
+
+    function getState() {
+        try {
+            const data = localStorage.getItem(STORAGE_KEY);
+            return data ? JSON.parse(data) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function clearState() {
+        localStorage.removeItem(STORAGE_KEY);
+        sessionStorage.removeItem('eduso_practice_url');
+        sessionStorage.removeItem(ANSWER_KEY);
+        sessionStorage.removeItem('eduso_auto_fill');
+    }
+
+    function delay(ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
+
+})();
