@@ -101,7 +101,7 @@ ui.innerHTML = `
        onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 4px 12px rgba(157,78,221,0.3)'">
         <svg width="14" height="14" style="vertical-align:-2px;margin-right:4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-        </svg>☁️ TẢI ĐÁP ÁN TỪ SEVER
+        </svg>☁️ TẢI ĐÁP ÁN TỪ SERVER
     </button>
 </div>
 
@@ -332,7 +332,7 @@ loadCloudBtn.onclick = async () => {
 
     loadCloudBtn.disabled = true;
     loadCloudBtn.style.opacity = '0.6';
-    statusEl.textContent = '⏳ Đang tải đáp án từ sever...';
+    statusEl.textContent = '⏳ Đang tải đáp án từ server...';
 
     try {
         const response = await fetch(`${API_URL}/${PRACTICE_ID}`);
