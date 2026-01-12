@@ -1,70 +1,90 @@
 (function() {
     'use strict';
-
     const API_URL = 'https://eduso-answers.edusoauto-license.workers.dev/api/answers';
-
-    // Namespace để tránh xung đột với script khác
-    const NAMESPACE = 'edusoauto_';
-    const MAPPING_KEY = NAMESPACE + 'id_mapping';          // reviewId → practiceId
-    const UPLOADED_KEY = NAMESPACE + 'uploaded_practice_ids';
-
+    const MAPPING_KEY = 'eduso_id_mapping'; // {reviewId: practiceId}
+    const UPLOADED_KEY = 'eduso_uploaded_ids';
     // ==================== TRANG LÀM BÀI ====================
     if (location.pathname.includes('/practice/detail/')) {
+        // Lấy practiceId từ URL trang làm bài
         const match = location.pathname.match(/\/practice\/detail\/([a-f0-9]+)/i);
         if (!match || !match[1]) {
-            console.log('[EDUSO AUTO] Cannot extract practiceId from URL');
+            console.log('[EDUSO] Cannot extract practiceId from URL');
             return;
         }
         const practiceId = match[1];
-        console.log('[EDUSO AUTO] 📝 Practice page - practiceId:', practiceId);
+        console.log('[EDUSO] 📝 Practice page - practiceId:', practiceId);
 
+        // LƯU LAST PRACTICE ID (fallback cho trường hợp mở tab mới)
+        localStorage.setItem('eduso_last_practice_id', practiceId);
+        console.log('[EDUSO] 💾 Saved last practiceId for fallback');
+
+        // Hook function Review() để bắt reviewId
         const originalReview = window.Review;
         window.Review = function(reviewId) {
             if (reviewId && reviewId.length > 10) {
+                // Lưu mapping: reviewId -> practiceId
                 const mapping = JSON.parse(localStorage.getItem(MAPPING_KEY) || '{}');
                 mapping[reviewId] = practiceId;
                 localStorage.setItem(MAPPING_KEY, JSON.stringify(mapping));
-                console.log('[EDUSO AUTO] 🔗 Mapped:', { practiceId, reviewId });
+                console.log('[EDUSO] 🔗 Mapped:', {
+                    practiceId: practiceId,
+                    reviewId: reviewId
+                });
             }
+            // Gọi function gốc
             if (typeof originalReview === 'function') {
                 return originalReview.apply(this, arguments);
             }
         };
-        console.log('[EDUSO AUTO] ✅ Hooked Review() function');
+        console.log('[EDUSO] ✅ Hooked Review() function');
     }
-
     // ==================== TRANG ĐÁP ÁN ====================
     if (location.pathname.includes('/ReviewLessonExam/')) {
+        // Lấy reviewId từ URL trang đáp án
         const urlParts = location.pathname.split('/');
         const reviewId = urlParts[urlParts.length - 1];
         if (!reviewId || reviewId.length < 10) {
-            console.log('[EDUSO AUTO] Invalid reviewId in URL');
+            console.log('[EDUSO] Invalid reviewId in URL');
             return;
         }
-        console.log('[EDUSO AUTO] 📄 Review page - reviewId:', reviewId);
-
+        console.log('[EDUSO] 📄 Review page - reviewId:', reviewId);
+        // Tìm practiceId tương ứng từ mapping
         const mapping = JSON.parse(localStorage.getItem(MAPPING_KEY) || '{}');
-        const practiceId = mapping[reviewId];
+        let practiceId = mapping[reviewId];
+
+        // FALLBACK: nếu hook Review không chạy (do mở tab mới)
         if (!practiceId) {
-            console.log('[EDUSO AUTO] ⏭️ Skipped - No practiceId mapped for this reviewId');
+            practiceId = localStorage.getItem('eduso_last_practice_id');
+            if (practiceId) {
+                console.log('[EDUSO] 🔄 Fallback success: dùng last_practice_id =', practiceId);
+            }
+        }
+
+        if (!practiceId) {
+            console.log('[EDUSO] ⏭️ Skipped - No practiceId found (neither mapping nor fallback)');
+            console.log('[EDUSO] (User accessed review page directly, not from practice page)');
             return;
         }
-        console.log('[EDUSO AUTO] ✅ Found mapping:', { reviewId, practiceId });
-
+        console.log('[EDUSO] ✅ Found mapping:', {
+            reviewId: reviewId,
+            practiceId: practiceId
+        });
+        // Kiểm tra đã upload chưa
         const uploadedIds = JSON.parse(localStorage.getItem(UPLOADED_KEY) || '[]');
         if (uploadedIds.includes(practiceId)) {
-            console.log('[EDUSO AUTO] ⏭️ Skipped - Already uploaded:', practiceId);
+            console.log('[EDUSO] ⏭️ Skipped - Already uploaded:', practiceId);
+            // Xóa mapping đã dùng
             delete mapping[reviewId];
             localStorage.setItem(MAPPING_KEY, JSON.stringify(mapping));
             return;
         }
-
+        // Quét đáp án
         function scanAnswers() {
             const answers = [];
+            // Quét tất cả elements theo thứ tự DOM
             const allElements = document.querySelectorAll('.form-group.pl-3.m-0, fillquiz');
-
             allElements.forEach(element => {
-                // Trắc nghiệm
+                // Câu trắc nghiệm
                 if (element.classList.contains('form-group')) {
                     const successSpans = element.querySelectorAll('span.text-success');
                     if (successSpans.length === 0) return;
@@ -80,7 +100,7 @@
                         answers.push(found.length === 1 ? found[0] : found);
                     }
                 }
-                // Điền từ
+                // Câu điền từ
                 else if (element.tagName.toLowerCase() === 'fillquiz') {
                     const fillNodes = element.querySelectorAll('i.text-success, span.text-success');
                     fillNodes.forEach(el => {
@@ -93,66 +113,73 @@
             });
             return answers;
         }
-
+        // Upload lên D1
         async function uploadAnswers(practiceId, answers) {
             try {
-                console.log('[EDUSO AUTO] 📤 Uploading:', { practiceId, answersCount: answers.length });
+                console.log('[EDUSO] 📤 Uploading:', {
+                    practiceId: practiceId,
+                    answersCount: answers.length
+                });
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ practiceId, answers })
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        practiceId: practiceId,
+                        answers: answers
+                    })
                 });
                 const result = await response.json();
-
                 if (response.ok && result.success) {
-                    console.log('[EDUSO AUTO] ✅ Upload successful!');
-                    console.log('[EDUSO AUTO] 📊 Server response:', result);
-
+                    console.log('[EDUSO] ✅ Upload successful!');
+                    console.log('[EDUSO] 📊 Server response:', result);
+                    // Lưu vào danh sách đã upload
                     const uploaded = JSON.parse(localStorage.getItem(UPLOADED_KEY) || '[]');
                     if (!uploaded.includes(practiceId)) {
                         uploaded.push(practiceId);
                         localStorage.setItem(UPLOADED_KEY, JSON.stringify(uploaded));
                     }
-
+                    // Xóa mapping đã dùng
+                    const mapping = JSON.parse(localStorage.getItem(MAPPING_KEY) || '{}');
                     delete mapping[reviewId];
                     localStorage.setItem(MAPPING_KEY, JSON.stringify(mapping));
                     return true;
                 } else {
-                    console.error('[EDUSO AUTO] ❌ Upload failed:', result);
+                    console.error('[EDUSO] ❌ Upload failed:', result);
                     return false;
                 }
             } catch (error) {
-                console.error('[EDUSO AUTO] ❌ Upload error:', error);
+                console.error('[EDUSO] ❌ Upload error:', error);
                 return false;
             }
         }
-
+        // Chờ trang load xong rồi quét và upload
         function autoUpload() {
             const answers = scanAnswers();
             if (answers.length === 0) {
-                console.log('[EDUSO AUTO] ⏳ No answers found');
+                console.log('[EDUSO] ⏳ No answers found, retrying...');
                 return;
             }
-            console.log('[EDUSO AUTO] 🎯 Found', answers.length, 'answers');
+            console.log('[EDUSO] 🎯 Found', answers.length, 'answers');
             uploadAnswers(practiceId, answers);
         }
-
-        // Retry logic
+        // Retry logic: đợi trang load đầy đủ
         let retryCount = 0;
         const maxRetries = 5;
-        console.log('[EDUSO AUTO] ⏳ Waiting for page to load...');
-
+        console.log('[EDUSO] ⏳ Waiting for page to load...');
         const checkAndUpload = setInterval(() => {
             const elements = document.querySelectorAll('.form-group.pl-3.m-0, fillquiz');
             if (elements.length > 0) {
                 clearInterval(checkAndUpload);
-                console.log('[EDUSO AUTO] ✅ Page loaded, scanning answers...');
+                console.log('[EDUSO] ✅ Page loaded, scanning answers...');
+                // Đợi thêm 1.5s để chắc chắn DOM đã render đầy đủ
                 setTimeout(autoUpload, 1500);
             } else {
                 retryCount++;
                 if (retryCount >= maxRetries) {
                     clearInterval(checkAndUpload);
-                    console.log('[EDUSO AUTO] ⚠️ Max retries reached');
+                    console.log('[EDUSO] ⚠️ Max retries reached, page may not have answers');
                 }
             }
         }, 1000);
