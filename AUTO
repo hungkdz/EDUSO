@@ -198,32 +198,35 @@ makeDrag(ui);
 makeDrag(dock);
 
 // --- Thu nhỏ / mở rộng ---
-document.addEventListener('click', (e) => {
-    const isMinBtn = e.target.closest('#minBtn');
-    const isDock = e.target.closest('#edusoAutoDock');
+const handleMinimize = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = ui.getBoundingClientRect();
+    dock.style.right = `${window.innerWidth - rect.right}px`;
+    dock.style.top = `${rect.top}px`;
+    dock.style.left = 'auto';
+    dock.style.display = 'flex';
+    ui.style.display = 'none';
+};
 
-    if (isMinBtn) {
-        e.stopPropagation();
-        const rect = ui.getBoundingClientRect();
-        dock.style.right = `${window.innerWidth - rect.right}px`;
-        dock.style.top = `${rect.top}px`;
-        dock.style.left = 'auto';
-        dock.style.display = 'flex';
-        ui.style.display = 'none';
-        return;
-    }
+const handleExpand = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = dock.getBoundingClientRect();
+    ui.style.top = `${rect.top}px`;
+    ui.style.right = `${window.innerWidth - rect.right}px`;
+    ui.style.left = 'auto';
+    ui.style.display = '';
+    dock.style.display = 'none';
+};
 
-    if (isDock) {
-        e.stopPropagation();
-        const rect = dock.getBoundingClientRect();
-        ui.style.top = `${rect.top}px`;
-        ui.style.right = `${window.innerWidth - rect.right}px`;
-        ui.style.left = 'auto';
-        ui.style.display = '';
-        dock.style.display = 'none';
-        return;
-    }
-}, true);
+// Sử dụng cả click và touchend cho mobile
+const minBtn = ui.querySelector('#minBtn');
+minBtn.addEventListener('click', handleMinimize);
+minBtn.addEventListener('touchend', handleMinimize);
+
+dock.addEventListener('click', handleExpand);
+dock.addEventListener('touchend', handleExpand);
 
 // --- Xử lý file ---
 const fileNameDisplay = ui.querySelector('#fileNameDisplay');
