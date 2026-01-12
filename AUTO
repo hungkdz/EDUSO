@@ -1,6 +1,17 @@
+
 (function() {
 'use strict';
 if (!location.href.includes('/practice/detail/')) return;
+
+const API_URL = 'https://eduso-answers.edusoauto-license.workers.dev/api/answers';
+
+// Lấy practiceId từ URL
+function getPracticeId() {
+    const match = location.pathname.match(/\/practice\/detail\/([a-f0-9]+)/i);
+    return match ? match[1] : null;
+}
+
+const PRACTICE_ID = getPracticeId();
 
 // --- UI: vị trí cao hơn (top:40px), đẹp, gọn ---
 const ui = document.createElement('div');
@@ -78,6 +89,20 @@ ui.innerHTML = `
             <span id="fileNameDisplay">Chưa chọn tệp</span>
         </div>
     </div>
+</div>
+
+<div style="margin-bottom:12px;">
+    <button id="loadCloudBtn" style="
+        width:100%;padding:10px;background:linear-gradient(135deg,#9d4edd,#7b2cbf);
+        color:white;border:none;border-radius:10px;font-weight:700;font-size:13px;
+        cursor:pointer;transition:all 0.3s;
+        box-shadow:0 4px 12px rgba(157,78,221,0.3);
+    " onmouseenter="this.style.transform='scale(1.03)';this.style.boxShadow='0 6px 16px rgba(157,78,221,0.5)'"
+       onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 4px 12px rgba(157,78,221,0.3)'">
+        <svg width="14" height="14" style="vertical-align:-2px;margin-right:4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+        </svg>☁️ TẢI ĐÁP ÁN TỪ CLOUD
+    </button>
 </div>
 
 <div style="margin-bottom:14px;">
@@ -220,7 +245,6 @@ const handleExpand = (e) => {
     dock.style.display = 'none';
 };
 
-// Sử dụng cả click và touchend cho mobile
 const minBtn = ui.querySelector('#minBtn');
 minBtn.addEventListener('click', handleMinimize);
 minBtn.addEventListener('touchend', handleMinimize);
@@ -241,14 +265,13 @@ answerFileInput.addEventListener('change', function() {
     }
 });
 
-const [answerInput, speedSlider, scoreSlider, startBtn, stopBtn, tongEl, xongEl, statusEl, badge, scoreVal] =
-    ['#answerInput','#speedSlider','#scoreSlider','#startBtn','#stopBtn','#tong','#xong','#status','#answerCountBadge','#scoreValue'].map(id => ui.querySelector(id));
+const [answerInput, speedSlider, scoreSlider, startBtn, stopBtn, tongEl, xongEl, statusEl, badge, scoreVal, loadCloudBtn] =
+    ['#answerInput','#speedSlider','#scoreSlider','#startBtn','#stopBtn','#tong','#xong','#status','#answerCountBadge','#scoreValue','#loadCloudBtn'].map(id => ui.querySelector(id));
 
 let ANSWERS = [], isRunning = false, abortCtrl = null;
 
 const countTotal = () => document.querySelectorAll('.quiz-item').length;
 
-// ✅ CẬP NHẬT: Đếm tổng số checkbox + radio được tick
 const countDone = () => {
     const radioCount = document.querySelectorAll('.quiz-item input[type="radio"]:checked').length;
     const checkboxCount = document.querySelectorAll('.quiz-item input[type="checkbox"]:checked').length;
@@ -266,7 +289,6 @@ const updateUI = () => {
     }
 };
 
-// ✅ CẬP NHẬT: Normalize đáp án, hỗ trợ array con
 const normAns = arr => arr.map(a => {
     if (Array.isArray(a)) {
         return a.map(item => (item.match(/^[A-Z]\./) || [item.trim()])[0]);
@@ -301,6 +323,69 @@ answerFileInput.onchange = e => {
     r.readAsText(f);
 };
 
+// ==================== LOAD ĐÁP ÁN TỪ CLOUD ====================
+loadCloudBtn.onclick = async () => {
+    if (!PRACTICE_ID) {
+        statusEl.textContent = '❌ Không tìm thấy Practice ID';
+        return;
+    }
+
+    loadCloudBtn.disabled = true;
+    loadCloudBtn.style.opacity = '0.6';
+    statusEl.textContent = '⏳ Đang tải đáp án từ cloud...';
+
+    try {
+        const response = await fetch(`${API_URL}/${PRACTICE_ID}`);
+        const data = await response.json();
+
+        if (response.ok && data.exists) {
+            ANSWERS = normAns(data.answers);
+            answerInput.value = JSON.stringify(ANSWERS, null, 2);
+            badge.textContent = ANSWERS.length;
+            
+            const daysLeft = data.daysRemaining || 0;
+            statusEl.textContent = `✅ Đã có đáp án! (${ANSWERS.length} câu, còn ${daysLeft} ngày)`;
+            statusEl.style.color = '#39ff14';
+            
+            // Hiển thị thông tin thêm
+            console.log('[EDUSO CLOUD]', {
+                practiceId: data.practiceId,
+                answersCount: ANSWERS.length,
+                usageCount: data.usageCount,
+                daysRemaining: daysLeft
+            });
+        } else {
+            statusEl.textContent = '⚠️ Chưa có đáp án cho bài này';
+            statusEl.style.color = '#ff9900';
+        }
+    } catch (error) {
+        statusEl.textContent = '❌ Lỗi kết nối cloud';
+        statusEl.style.color = '#ff3300';
+        console.error('[EDUSO CLOUD] Error:', error);
+    } finally {
+        loadCloudBtn.disabled = false;
+        loadCloudBtn.style.opacity = '1';
+        setTimeout(() => {
+            statusEl.style.color = '#ff66cc';
+        }, 3000);
+    }
+};
+
+// Check đáp án khi load trang
+if (PRACTICE_ID) {
+    fetch(`${API_URL}/${PRACTICE_ID}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.exists) {
+                const daysLeft = data.daysRemaining || 0;
+                statusEl.textContent = `☁️ Có sẵn ${data.answers.length} đáp án (còn ${daysLeft} ngày)`;
+                statusEl.style.color = '#00ffff';
+                loadCloudBtn.style.boxShadow = '0 0 16px rgba(0,255,255,0.6)';
+            }
+        })
+        .catch(() => {});
+}
+
 const genWrong = s => {
     const ops = [
         () => s.length > 2 ? s.slice(0,-1) : s+'x',
@@ -328,7 +413,6 @@ const safeClick = el => {
 
 scoreSlider.oninput = () => { const s = +scoreSlider.value; scoreVal.textContent = s; updateUI(); };
 
-// ✅ LOGIC MỚI: Xử lý câu chọn nhiều đáp án
 const auto = async () => {
     if (isRunning) return;
     isRunning = true; abortCtrl = new AbortController();
@@ -351,7 +435,6 @@ const auto = async () => {
             const ans = ANSWERS[idx++];
             const correct = correctSet.has(i);
 
-            // ✅ XỬ LÝ CÂU NHIỀU ĐÁP ÁN
             if (Array.isArray(ans)) {
                 const isMulti = q.querySelector('input[type="checkbox"]') !== null;
 
@@ -361,8 +444,7 @@ const auto = async () => {
                 }
 
                 if (correct) {
-                    // Làm đúng: chọn tất cả
-                    statusEl.textContent = `🔄 Câu ${idx}/${total} — ✅ [${ans.join(', ')}]`;
+                    statusEl.textContent = `📝 Câu ${idx}/${total} — ✅ [${ans.join(', ')}]`;
                     for (const letter of ans) {
                         for (const fc of q.querySelectorAll('.form-check')) {
                             const lbl = fc.querySelector('label.answer-text');
@@ -373,13 +455,11 @@ const auto = async () => {
                         }
                     }
                 } else {
-                    // Làm sai: random giữa "sai một phần" và "bỏ trống"
                     const wrongType = Math.random() < 0.5 ? 'partial' : 'skip';
 
                     if (wrongType === 'partial') {
-                        // Chọn ngẫu nhiên 1 đáp án đúng
                         const chosen = ans[~~(Math.random() * ans.length)];
-                        statusEl.textContent = `🔄 Câu ${idx}/${total} — ⚠️ "${chosen}" (sai 1 phần)`;
+                        statusEl.textContent = `📝 Câu ${idx}/${total} — ⚠️ "${chosen}" (sai 1 phần)`;
                         for (const fc of q.querySelectorAll('.form-check')) {
                             const lbl = fc.querySelector('label.answer-text');
                             if (lbl && lbl.textContent.trim().startsWith(chosen)) {
@@ -388,12 +468,10 @@ const auto = async () => {
                             }
                         }
                     } else {
-                        // Bỏ trống
-                        statusEl.textContent = `🔄 Câu ${idx}/${total} — ❌ [bỏ trống]`;
+                        statusEl.textContent = `📝 Câu ${idx}/${total} — ❌ [bỏ trống]`;
                     }
                 }
             }
-            // ✅ XỬ LÝ CÂU 1 ĐÁP ÁN (RADIO)
             else {
                 const ansStr = (ans || '').trim();
                 let final = ansStr, isCor = true;
@@ -412,7 +490,7 @@ const auto = async () => {
                     }
                 }
 
-                statusEl.textContent = `🔄 Câu ${idx}/${total} — ${isCor ? '✅' : '❌'} "${final || '[bỏ trống]'}"`;
+                statusEl.textContent = `📝 Câu ${idx}/${total} — ${isCor ? '✅' : '❌'} "${final || '[bỏ trống]'}"`;
 
                 let ok = false;
                 if (final === null) {
