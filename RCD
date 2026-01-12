@@ -180,7 +180,7 @@
         dock.style.display = 'none';
     });
 
-    // --- Recorder logic (CẬP NHẬT) ---
+    // --- Recorder logic (FIX ĐÚNG THỨ TỰ) ---
     const countEl = document.getElementById('count');
     const copyBtn = document.getElementById('copyBtn');
     const saveBtn = document.getElementById('saveBtn');
@@ -190,37 +190,41 @@
     function scanAllAnswers() {
         finalAnswers = [];
 
-        // Quét các câu hỏi trắc nghiệm (trong form-group)
-        const formGroups = document.querySelectorAll('.form-group.pl-3.m-0');
+        // Tìm tất cả các element có thể chứa câu hỏi, quét theo thứ tự DOM
+        const allElements = document.querySelectorAll('.form-group.pl-3.m-0, fillquiz');
 
-        formGroups.forEach(group => {
-            const successSpans = group.querySelectorAll('span.text-success');
-            if (successSpans.length === 0) return;
+        allElements.forEach(element => {
+            // Kiểm tra xem đây là câu trắc nghiệm hay điền từ
+            if (element.classList.contains('form-group')) {
+                // Câu trắc nghiệm
+                const successSpans = element.querySelectorAll('span.text-success');
+                if (successSpans.length === 0) return;
 
-            const answers = [];
-            successSpans.forEach(span => {
-                let text = span.textContent.trim();
-                if (!text || text.includes('Không có')) return;
+                const answers = [];
+                successSpans.forEach(span => {
+                    let text = span.textContent.trim();
+                    if (!text || text.includes('Không có')) return;
 
-                // Lấy chữ cái đầu tiên (A-Z)
-                if (/^[A-Z][\.\)\s]/i.test(text)) {
-                    answers.push(text.charAt(0).toUpperCase() + ".");
+                    // Lấy chữ cái đầu tiên (A-Z)
+                    if (/^[A-Z][\.\)\s]/i.test(text)) {
+                        answers.push(text.charAt(0).toUpperCase() + ".");
+                    }
+                });
+
+                if (answers.length > 0) {
+                    // Nếu 1 đáp án: string, nếu nhiều đáp án: array
+                    finalAnswers.push(answers.length === 1 ? answers[0] : answers);
                 }
-            });
-
-            if (answers.length > 0) {
-                // Nếu 1 đáp án: string, nếu nhiều đáp án: array
-                finalAnswers.push(answers.length === 1 ? answers[0] : answers);
+            } else if (element.tagName.toLowerCase() === 'fillquiz') {
+                // Câu điền từ
+                const fillNodes = element.querySelectorAll('i.text-success, span.text-success');
+                fillNodes.forEach(el => {
+                    let text = el.textContent.trim();
+                    if (!text || text.includes('Không có')) return;
+                    if (text.includes('|')) text = text.split('|')[0].trim();
+                    finalAnswers.push(text);
+                });
             }
-        });
-
-        // Quét câu điền từ (fillquiz) - giữ logic cũ
-        const fillQuizNodes = document.querySelectorAll('fillquiz i.text-success, fillquiz span.text-success');
-        fillQuizNodes.forEach(el => {
-            let text = el.textContent.trim();
-            if (!text || text.includes('Không có')) return;
-            if (text.includes('|')) text = text.split('|')[0].trim();
-            finalAnswers.push(text);
         });
 
         countEl.textContent = finalAnswers.length;
