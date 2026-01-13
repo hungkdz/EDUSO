@@ -117,7 +117,7 @@ ui.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
         <div style="display:flex;align-items:center;gap:6px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffd700" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span style="font-weight:700;font-size:11px;color:#ffd700;">GOD MODE</span>
+            <span style="font-weight:700;font-size:11px;color:#ffd700;">AUTO 1S (NGUY HIỂM)</span>
         </div>
         <label class="toggle-switch" style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">
             <input type="checkbox" id="godModeToggle" style="opacity:0;width:0;height:0;" ${config.godMode ? 'checked' : ''}>
