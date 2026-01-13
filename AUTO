@@ -325,7 +325,7 @@ let GOD_MODE = config.godMode;
 
 // Khởi tạo God Mode từ config
 if (GOD_MODE) {
-    godModeStatus.textContent = '⚡ BẬT - 100% đúng';
+    godModeStatus.textContent = '⚡ BẬT - Chỉ làm đúng 100%';
     godModeStatus.style.color = '#ffd700';
     scoreSlider.disabled = true;
     scoreSlider.style.opacity = '0.4';
