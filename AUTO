@@ -526,7 +526,7 @@ godModeToggle.onchange = () => {
     GOD_MODE = godModeToggle.checked;
 
     if (GOD_MODE) {
-        godModeStatus.textContent = '⚡ BẬT - 100% đúng';
+        godModeStatus.textContent = '⚡ BẬT - Chỉ làm đúng 100%';
         godModeStatus.style.color = '#ffd700';
         scoreSlider.disabled = true;
         scoreSlider.style.opacity = '0.4';
