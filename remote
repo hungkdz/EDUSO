@@ -1,15 +1,3 @@
-// ==UserScript==
-// @name         KT Support v3 (Silent)
-// @namespace    https://kt-support
-// @version      3.0
-// @description  KT Support — không UI, không guard, chỉ nhận lệnh từ Admin Panel
-// @author       Nguyen
-// @match        https://practice.eduso.vn/*
-// @match        https://*.eduso.vn/*/student/exam/detail/*
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @run-at       document-start
-// ==/UserScript==
 
 (function() {
 'use strict';
