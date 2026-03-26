@@ -1,0 +1,1273 @@
+// ==UserScript==
+// @name         KT Support v2.
+// @namespace    https://kt-support
+// @version      2.0
+// @description  
+// @author       Nguyen
+// @match        https://practice.eduso.vn/*
+// @match        https://*.eduso.vn/*/student/exam/detail/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+'use strict';
+
+// ==================== BYPASS FULLSCREEN ====================
+const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+
+Object.defineProperty(document, 'fullscreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitFullscreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'mozFullScreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'msFullscreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'fullscreen', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitIsFullScreen', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'mozFullScreen', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'msFullscreenEnabled', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'fullscreenEnabled', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitFullscreenEnabled', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'hidden', { get: () => false, set: () => {}, configurable: true });
+Object.defineProperty(document, 'visibilityState', { get: () => 'visible', set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitVisibilityState', { get: () => 'visible', set: () => {}, configurable: true });
+
+Document.prototype.hasFocus = function() { return true; };
+win.document.hasFocus = function() { return true; };
+
+const originalAddEventListener = EventTarget.prototype.addEventListener;
+const blockedEvents = new Set([
+    'fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'msfullscreenchange',
+    'fullscreenerror', 'webkitfullscreenerror',
+    'visibilitychange', 'webkitvisibilitychange', 'blur', 'focusout', 'beforeunload'
+]);
+
+EventTarget.prototype.addEventListener = function(type, listener, options) {
+    const lowerType = String(type).toLowerCase();
+    if (blockedEvents.has(lowerType)) return;
+    return originalAddEventListener.call(this, type, listener, options);
+};
+
+const blockFullscreenRequest = () => {};
+if (Element.prototype.requestFullscreen) Element.prototype.requestFullscreen = blockFullscreenRequest;
+if (Element.prototype.webkitRequestFullscreen) Element.prototype.webkitRequestFullscreen = blockFullscreenRequest;
+if (Element.prototype.mozRequestFullScreen) Element.prototype.mozRequestFullScreen = blockFullscreenRequest;
+if (Element.prototype.msRequestFullscreen) Element.prototype.msRequestFullscreen = blockFullscreenRequest;
+if (Document.prototype.exitFullscreen) Document.prototype.exitFullscreen = () => Promise.resolve();
+if (Document.prototype.webkitExitFullscreen) Document.prototype.webkitExitFullscreen = () => Promise.resolve();
+if (Document.prototype.mozCancelFullScreen) Document.prototype.mozCancelFullScreen = () => Promise.resolve();
+if (Document.prototype.msExitFullscreen) Document.prototype.msExitFullscreen = () => Promise.resolve();
+
+const blockF11 = (e) => {
+    if ((e.key === 'F11' || e.keyCode === 122) && e.isTrusted === false) {
+        e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
+    }
+};
+document.addEventListener('keydown', blockF11, true);
+document.addEventListener('keyup', blockF11, true);
+
+// Bypass copy/paste
+const pasteStyle = document.createElement('style');
+pasteStyle.id = 'kt-paste-bypass';
+pasteStyle.textContent = `html,body,*{-webkit-user-select:text!important;-moz-user-select:text!important;-ms-user-select:text!important;user-select:text!important;}`;
+if (document.documentElement) document.documentElement.appendChild(pasteStyle);
+
+const nullifyDocHandlers = () => {
+    [document, document.documentElement, document.body, window].forEach(t => {
+        if (!t) return;
+        t.oncopy = t.oncut = t.onpaste = t.onselectstart = t.oncontextmenu = t.ondragstart = null;
+    });
+};
+nullifyDocHandlers();
+
+const blockPasteTypes = ['copy','cut','paste','contextmenu','selectstart','dragstart'];
+function installPasteBlockers(root) {
+    blockPasteTypes.forEach(type => {
+        root.addEventListener(type, (e) => {
+            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+            e.stopPropagation(); e.cancelBubble = true;
+        }, true);
+    });
+}
+installPasteBlockers(window);
+installPasteBlockers(document);
+
+const pasteKeyBlock = (e) => {
+    const k = e.key?.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && ['c','v','x','a'].includes(k)) {
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        e.stopPropagation(); e.cancelBubble = true;
+    }
+};
+window.addEventListener('keydown', pasteKeyBlock, true);
+window.addEventListener('keyup', pasteKeyBlock, true);
+
+function cleanPasteAttrs(el) {
+    if (!el || !el.hasAttribute) return;
+    ['oncopy','oncut','onpaste','oncontextmenu','onselectstart','ondragstart'].forEach(a => { if (el.hasAttribute(a)) el.removeAttribute(a); });
+    try { el.style.userSelect = 'text'; el.style.webkitUserSelect = 'text'; } catch(e) {}
+}
+function walkAndCleanPaste(root) {
+    cleanPasteAttrs(root);
+    if (root.querySelectorAll) root.querySelectorAll('*').forEach(cleanPasteAttrs);
+}
+
+const pasteObserverMutation = new MutationObserver(muts => {
+    for (const m of muts) {
+        if (m.type === 'childList') m.addedNodes.forEach(n => walkAndCleanPaste(n));
+        else if (m.type === 'attributes') cleanPasteAttrs(m.target);
+    }
+});
+try {
+    if (document.documentElement) {
+        pasteObserverMutation.observe(document.documentElement, {
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ['oncopy','oncut','onpaste','oncontextmenu','onselectstart','ondragstart','style','class']
+        });
+    }
+} catch(e) {}
+
+let pasteCleanTries = 0;
+const pasteCleanTimer = setInterval(() => {
+    pasteCleanTries++;
+    if (document.documentElement) walkAndCleanPaste(document.documentElement);
+    nullifyDocHandlers();
+    if (!document.getElementById('kt-paste-bypass') && document.documentElement) document.documentElement.appendChild(pasteStyle);
+    if (pasteCleanTries >= 10) clearInterval(pasteCleanTimer);
+}, 400);
+
+['fullscreenchange','webkitfullscreenchange','visibilitychange','blur','focusout'].forEach(type => {
+    const stopEvent = (e) => { e.stopImmediatePropagation(); e.stopPropagation(); e.cancelBubble = true; };
+    document.addEventListener(type, stopEvent, true);
+    win.addEventListener(type, stopEvent, true);
+});
+
+const cleanFullscreenHandlers = () => {
+    [win, document, document.documentElement, document.body].forEach(target => {
+        if (target) {
+            ['onfullscreenchange','onwebkitfullscreenchange','onvisibilitychange','onblur','onfocusout'].forEach(prop => {
+                try { if (target[prop]) target[prop] = null; } catch(e) {}
+            });
+        }
+    });
+};
+
+const autoClickFullscreenButton = () => {
+    const keywords = ['thực hiện','tiếp tục','đồng ý','bắt đầu','ok','continue','start'];
+    const buttons = document.querySelectorAll('button, .btn, [role="button"]');
+    for (const btn of buttons) {
+        const text = btn.innerText?.toLowerCase() || btn.textContent?.toLowerCase() || '';
+        if (keywords.some(kw => text.includes(kw))) {
+            const parent = btn.closest('.modal, .dialog, .popup, .alert, [role="dialog"]');
+            if (parent) {
+                const parentText = parent.innerText?.toLowerCase() || '';
+                if (parentText.includes('toàn màn hình') || parentText.includes('fullscreen') || parentText.includes('chế độ làm bài')) {
+                    setTimeout(() => btn.click(), 100);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+};
+
+let autoClickAttempts = 0;
+const cleanInterval = setInterval(() => {
+    cleanFullscreenHandlers();
+    if (autoClickAttempts < 20) { autoClickFullscreenButton(); autoClickAttempts++; }
+}, 500);
+setTimeout(() => clearInterval(cleanInterval), 60000);
+
+const popupObserver = new MutationObserver(() => autoClickFullscreenButton());
+if (document.body) {
+    popupObserver.observe(document.body, { childList: true, subtree: true });
+} else {
+    document.addEventListener('DOMContentLoaded', () => {
+        popupObserver.observe(document.body, { childList: true, subtree: true });
+    });
+}
+
+// ==================== URL CHECK ====================
+const isValidURL = location.href.includes('/practice/detail/') || location.href.includes('/student/exam/detail/');
+if (!isValidURL) return;
+
+const API_URL = 'https://eduso-answers.edusoauto-license.workers.dev/api/answers';
+
+function getPracticeId() {
+    let match = location.pathname.match(/\/practice\/detail\/([a-f0-9]+)/i);
+    if (!match) match = location.pathname.match(/\/exam\/detail\/([a-f0-9]+)/i);
+    return match ? match[1] : null;
+}
+const PRACTICE_ID = getPracticeId();
+
+// ==================== CONFIG ====================
+const CONFIG_KEY = 'ktSupportConfig_v2';
+const DEFAULT_CONFIG = {
+    speed: 400, targetScore: 8, godMode: false,
+    uiPosition: { top: 40, right: 16, left: null },
+    minimized: false
+};
+const hasGM = typeof GM_setValue !== 'undefined' && typeof GM_getValue !== 'undefined';
+
+function saveConfig(updates) {
+    try {
+        const newConfig = { ...loadConfig(), ...updates };
+        hasGM ? GM_setValue(CONFIG_KEY, JSON.stringify(newConfig)) : localStorage.setItem(CONFIG_KEY, JSON.stringify(newConfig));
+        return newConfig;
+    } catch(e) { return null; }
+}
+
+function loadConfig() {
+    try {
+        let saved = hasGM ? GM_getValue(CONFIG_KEY, null) : localStorage.getItem(CONFIG_KEY);
+        if (saved) {
+            const parsed = typeof saved === 'string' ? JSON.parse(saved) : saved;
+            return { ...DEFAULT_CONFIG, ...parsed };
+        }
+        return DEFAULT_CONFIG;
+    } catch(e) { return DEFAULT_CONFIG; }
+}
+
+let config = loadConfig();
+
+// ==================== WAIT FOR DOM ====================
+const waitForDOM = () => new Promise(resolve => {
+    if (document.body) { resolve(); return; }
+    const obs = new MutationObserver(() => { if (document.body) { obs.disconnect(); resolve(); } });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+});
+
+(async function init() {
+    await waitForDOM();
+
+// ==================== INJECT STYLES ====================
+const styles = document.createElement('style');
+styles.textContent = `
+/* KT Support v2.0 — Blox Fruit Style */
+#ktSupportUI {
+    position: fixed;
+    width: 240px;
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid #b19cd9;
+    border-radius: 12px;
+    padding: 12px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: #ffffff;
+    font-size: 12px;
+    z-index: 99999;
+    will-change: transform;
+}
+
+#ktSupportUI .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #b19cd9;
+    cursor: grab;
+    user-select: none;
+    line-height: 1;
+}
+
+#ktSupportUI .header:active { cursor: grabbing; }
+
+#ktSupportUI .header-title {
+    font-weight: 800;
+    font-size: 14px;
+    color: #ffffff;
+    line-height: 1;
+}
+
+.kt-btn {
+    background: #9b59b6;
+    border: 2px solid #7d3c98;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 700;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 8px 12px;
+    transition: background 0.15s;
+}
+.kt-btn:hover { background: #ae7dc0; }
+.kt-btn:active { background: #8e44ad; }
+.kt-btn-primary { background: #9b59b6; border-color: #7d3c98; }
+.kt-btn-primary:hover { background: #ae7dc0; }
+.kt-btn-secondary { background: #888; border-color: #555; }
+.kt-btn-secondary:hover { background: #999; }
+.kt-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+.kt-btn-green { background: #1e7e34; border-color: #155724; }
+.kt-btn-green:hover { background: #28a745; }
+.kt-btn-small { padding: 6px 10px; font-size: 10px; }
+.kt-btn-icon {
+    width: 26px; height: 26px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 6px; flex-shrink: 0; vertical-align: middle; line-height: 1;
+}
+
+.kt-input-section { margin-bottom: 8px; }
+
+.kt-label {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px; font-size: 11px; color: #ffffff;
+}
+
+.kt-badge {
+    background: rgba(155, 89, 182, 0.2);
+    border: 1px solid #b19cd9;
+    color: #b19cd9;
+    font-size: 10px; padding: 2px 8px;
+    border-radius: 6px; font-weight: 600;
+}
+
+#ktSupportUI textarea {
+    width: 100%; padding: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(177, 156, 217, 0.3);
+    border-radius: 6px; color: #ffffff;
+    font-size: 11px; resize: vertical;
+    font-family: 'Consolas', monospace;
+    box-sizing: border-box;
+}
+#ktSupportUI textarea:focus { outline: none; border-color: #b19cd9; }
+
+.kt-toggle-panel {
+    background: rgba(155, 89, 182, 0.05);
+    border: 1px solid rgba(177, 156, 217, 0.4);
+    border-radius: 6px; padding: 5px 8px; margin-bottom: 8px;
+}
+.kt-toggle-row { display: flex; justify-content: space-between; align-items: center; }
+.kt-toggle-label { font-size: 10px; color: #ffffff; font-weight: 600; }
+
+.kt-toggle-switch {
+    position: relative; width: 38px; height: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(177, 156, 217, 0.4);
+    border-radius: 20px; cursor: pointer;
+}
+.kt-toggle-switch.active { background: #9b59b6; border-color: #b19cd9; }
+.kt-toggle-thumb {
+    position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; background: #333; border-radius: 50%;
+    transition: left 0.2s;
+}
+.kt-toggle-switch.active .kt-toggle-thumb { left: 20px; background: #1a1a1a; }
+
+.kt-slider-section { margin-bottom: 8px; }
+.kt-slider-header { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 11px; }
+.kt-slider-label { color: #ffffff; }
+.kt-slider-value { color: #ffffff; font-weight: 700; }
+
+#ktSupportUI input[type="range"] {
+    width: 100%; height: 6px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(177, 156, 217, 0.4);
+    border-radius: 3px; outline: none; -webkit-appearance: none;
+}
+#ktSupportUI input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: #9b59b6; border-radius: 50%; cursor: pointer;
+}
+#ktSupportUI input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; background: #9b59b6;
+    border-radius: 50%; cursor: pointer; border: none;
+}
+
+.kt-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.kt-btn-full { grid-column: 1 / -1; }
+
+.kt-stats {
+    display: flex; justify-content: space-between;
+    padding: 6px 0;
+    border-top: 1px solid rgba(177, 156, 217, 0.4);
+    border-bottom: 1px solid rgba(177, 156, 217, 0.4);
+    font-size: 11px; margin-bottom: 8px;
+}
+.kt-stat-item { color: #ffffff; }
+.kt-stat-value { color: #b19cd9; font-weight: 700; }
+
+.kt-status {
+    text-align: center; font-size: 10px; color: #ffffff;
+    padding: 6px;
+    background: rgba(155, 89, 182, 0.05);
+    border-radius: 6px;
+    border: 1px solid rgba(177, 156, 217, 0.3);
+}
+
+.kt-file-wrapper { position: relative; flex: 1; }
+.kt-file-input {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    opacity: 0; cursor: pointer; z-index: 2;
+}
+.kt-file-label {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(177, 156, 217, 0.4);
+    border-radius: 6px; cursor: pointer;
+    font-size: 10px; color: #ffffff;
+}
+.kt-file-label:hover { border-color: #b19cd9; }
+
+/* 3-finger toast hint */
+#ktThreeFingerHint {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(155, 89, 182, 0.85);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 8px 20px;
+    border-radius: 20px;
+    z-index: 99999;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    white-space: nowrap;
+}
+#ktThreeFingerHint.show { opacity: 1; }
+
+/* ==================== WARNING OVERLAY ==================== */
+#ktWarnOverlay {
+    position: fixed; inset: 0; z-index: 999998;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(6px);
+    animation: ktOverlayFadeIn 0.2s ease;
+}
+#ktWarnOverlay.visible { display: flex; }
+
+@keyframes ktOverlayFadeIn {
+    from { opacity: 0; } to { opacity: 1; }
+}
+
+#ktWarnBox {
+    background: linear-gradient(160deg, #1a0a2e 0%, #0d0d1a 100%);
+    border: 2px solid #b19cd9;
+    border-radius: 16px; padding: 32px 28px 24px;
+    width: 340px; text-align: center;
+    box-shadow: 0 0 40px rgba(177, 156, 217, 0.25), 0 8px 32px rgba(0,0,0,0.6);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    animation: ktBoxSlideUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes ktBoxSlideUp {
+    from { transform: translateY(24px) scale(0.95); opacity: 0; }
+    to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+#ktWarnBox .kt-warn-icon { font-size: 40px; margin-bottom: 12px; line-height: 1; filter: drop-shadow(0 0 12px rgba(255,180,0,0.6)); }
+#ktWarnBox .kt-warn-timer {
+    font-size: 28px; font-weight: 900; color: #ff6b6b;
+    margin-bottom: 6px; letter-spacing: 2px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 16px rgba(255,80,80,0.4);
+}
+#ktWarnBox .kt-warn-title {
+    font-size: 15px; font-weight: 800; color: #ffcc44;
+    margin-bottom: 8px; line-height: 1.4;
+    text-shadow: 0 0 12px rgba(255,200,0,0.3);
+}
+#ktWarnBox .kt-warn-sub { font-size: 13px; color: #ffffff; margin-bottom: 20px; opacity: 0.85; }
+#ktWarnBox .kt-warn-btn-row { display: flex; gap: 10px; justify-content: center; }
+
+#ktWarnBox .kt-warn-btn-confirm {
+    background: #c0392b; border: 2px solid #922b21;
+    border-radius: 8px; color: #fff; font-weight: 700;
+    font-size: 12px; cursor: pointer; padding: 9px 18px;
+}
+#ktWarnBox .kt-warn-btn-confirm:hover { background: #e74c3c; }
+
+#ktWarnBox .kt-warn-btn-cancel {
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(177,156,217,0.5);
+    border-radius: 8px; color: #fff; font-weight: 700;
+    font-size: 12px; cursor: pointer; padding: 9px 18px;
+}
+#ktWarnBox .kt-warn-btn-cancel:hover { background: rgba(255,255,255,0.15); }
+
+#ktWarnProgress {
+    width: 100%; height: 5px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px; margin-bottom: 14px; overflow: hidden;
+}
+#ktWarnProgressBar {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, #ff6b6b, #ffcc44);
+    transition: width 1s linear;
+}
+
+/* Confirm dialog */
+#ktConfirmDialog {
+    position: fixed; inset: 0; z-index: 999999;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+}
+#ktConfirmDialog.visible { display: flex; }
+
+#ktConfirmBox {
+    background: linear-gradient(160deg, #1a0a2e 0%, #0d0d1a 100%);
+    border: 2px solid #e74c3c; border-radius: 14px;
+    padding: 28px 24px 20px; width: 300px; text-align: center;
+    box-shadow: 0 0 30px rgba(231,76,60,0.3), 0 8px 24px rgba(0,0,0,0.6);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    animation: ktBoxSlideUp 0.2s ease;
+}
+#ktConfirmBox .kt-confirm-icon { font-size: 32px; margin-bottom: 10px; }
+#ktConfirmBox .kt-confirm-title { font-size: 14px; font-weight: 800; color: #ff6b6b; margin-bottom: 6px; }
+#ktConfirmBox .kt-confirm-sub { font-size: 12px; color: rgba(255,255,255,0.7); margin-bottom: 20px; line-height: 1.5; }
+#ktConfirmBox .kt-confirm-btn-row { display: flex; gap: 10px; justify-content: center; }
+
+#ktConfirmBox .kt-confirm-yes {
+    background: #c0392b; border: 2px solid #922b21;
+    border-radius: 8px; color: #fff; font-weight: 700;
+    font-size: 12px; cursor: pointer; padding: 9px 20px;
+}
+#ktConfirmBox .kt-confirm-yes:hover { background: #e74c3c; }
+
+#ktConfirmBox .kt-confirm-no {
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(177,156,217,0.5);
+    border-radius: 8px; color: #fff; font-weight: 700;
+    font-size: 12px; cursor: pointer; padding: 9px 20px;
+}
+#ktConfirmBox .kt-confirm-no:hover { background: rgba(255,255,255,0.15); }
+`;
+document.head.appendChild(styles);
+
+// ==================== CREATE UI ====================
+const ui = document.createElement('div');
+ui.id = 'ktSupportUI';
+const posStyle = config.uiPosition.left !== null
+    ? `left:${config.uiPosition.left}px;top:${config.uiPosition.top}px;`
+    : `right:${config.uiPosition.right}px;top:${config.uiPosition.top}px;`;
+ui.style.cssText = posStyle;
+ui.style.display = config.minimized ? 'none' : 'block';
+
+ui.innerHTML = `
+<div class="header" id="ktHeader">
+    <div class="header-title">🎮 KT SUPPORT</div>
+    <button class="kt-btn kt-btn-icon kt-btn-small" id="ktMinBtn" title="Thu nhỏ (hoặc chạm 3 ngón)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M6 9l6 6 6-6"></path>
+        </svg>
+    </button>
+</div>
+
+<div class="kt-input-section">
+    <div class="kt-label">
+        <span>📋 Đáp án</span>
+        <span class="kt-badge" id="ktAnswerCount">0</span>
+    </div>
+    <textarea id="ktAnswerInput" rows="2" placeholder='["A.","B.","C."]'></textarea>
+</div>
+
+<div class="kt-btn-grid" style="margin-bottom:8px;">
+    <div class="kt-file-wrapper">
+        <input type="file" id="ktAnswerFile" accept=".txt,.json" class="kt-file-input">
+        <div class="kt-file-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <path d="M14 2v6h6"/>
+            </svg>
+            <span id="ktFileNameDisplay">File</span>
+        </div>
+    </div>
+    <button class="kt-btn kt-btn-small" id="ktLoadCloudBtn">☁️ Cloud</button>
+</div>
+
+<div class="kt-toggle-panel">
+    <div class="kt-toggle-row">
+        <div class="kt-toggle-label">⚡ AUTO 1S (NGUY HIỂM)</div>
+        <div class="kt-toggle-switch" id="ktGodModeToggle">
+            <div class="kt-toggle-thumb"></div>
+        </div>
+    </div>
+</div>
+
+<div class="kt-slider-section">
+    <div class="kt-slider-header">
+        <span class="kt-slider-label">⚡ Tốc độ</span>
+        <span class="kt-slider-value" id="ktSpeedValue">${config.speed}ms</span>
+    </div>
+    <input type="range" id="ktSpeedSlider" min="200" max="1500" value="${config.speed}" step="100">
+</div>
+
+<div class="kt-slider-section">
+    <div class="kt-slider-header">
+        <span class="kt-slider-label">🎯 Điểm muốn đạt</span>
+        <span class="kt-slider-value" id="ktScoreValue">${config.targetScore}/10</span>
+    </div>
+    <input type="range" id="ktScoreSlider" min="0" max="10" value="${config.targetScore}" step="1">
+</div>
+
+<div class="kt-btn-grid">
+    <button class="kt-btn kt-btn-primary" id="ktStartBtn">▶ START</button>
+    <button class="kt-btn kt-btn-secondary" id="ktStopBtn" disabled>■ STOP</button>
+</div>
+
+<button class="kt-btn kt-btn-green kt-btn-full" id="ktCopyQABtn" style="width:100%;margin-bottom:8px;">📋 Copy Q&A</button>
+
+<div class="kt-stats">
+    <div class="kt-stat-item">Tổng: <span class="kt-stat-value" id="ktTong">0</span></div>
+    <div class="kt-stat-item">Làm: <span class="kt-stat-value" id="ktXong">0</span></div>
+</div>
+
+<div class="kt-status" id="ktStatus">🎯 Muốn đạt: ${config.targetScore} điểm</div>
+`;
+document.body.appendChild(ui);
+
+// ==================== 3-FINGER TOUCH TOGGLE ====================
+// Toast hint element
+const fingerHint = document.createElement('div');
+fingerHint.id = 'ktThreeFingerHint';
+fingerHint.textContent = '👆👆👆 Chạm 3 ngón để bật/tắt UI';
+document.body.appendChild(fingerHint);
+
+let fingerHintTimer = null;
+function showFingerHint(msg) {
+    fingerHint.textContent = msg;
+    fingerHint.classList.add('show');
+    if (fingerHintTimer) clearTimeout(fingerHintTimer);
+    fingerHintTimer = setTimeout(() => fingerHint.classList.remove('show'), 1500);
+}
+
+// Show hint once on load so user knows
+setTimeout(() => showFingerHint('👆👆👆 Chạm 3 ngón để bật/tắt UI'), 800);
+
+let threeFingerTimeout = null;
+
+document.addEventListener('touchstart', (e) => {
+    // Must be exactly 3 touches
+    if (e.touches.length !== 3) return;
+
+    // Make sure none of the touches are on the UI itself (avoid accidental trigger while using UI)
+    const uiEl = document.getElementById('ktSupportUI');
+    const onUI = uiEl && [...e.touches].some(t => uiEl.contains(document.elementFromPoint(t.clientX, t.clientY)));
+    if (onUI) return;
+
+    // Debounce: ignore if triggered too quickly twice
+    if (threeFingerTimeout) return;
+    threeFingerTimeout = setTimeout(() => { threeFingerTimeout = null; }, 600);
+
+    const isVisible = ui.style.display !== 'none';
+    if (isVisible) {
+        ui.style.display = 'none';
+        saveConfig({ minimized: true });
+        showFingerHint('🙈 UI đã ẩn');
+    } else {
+        ui.style.display = 'block';
+        saveConfig({ minimized: false });
+        showFingerHint('👁️ UI đã hiện');
+    }
+}, { passive: true });
+
+// ==================== WARNING OVERLAY ====================
+const GUARD_DURATION = 180; // 3 phút
+
+const warnOverlay = document.createElement('div');
+warnOverlay.id = 'ktWarnOverlay';
+warnOverlay.innerHTML = `
+<div id="ktWarnBox">
+    <div class="kt-warn-icon">⚠️</div>
+    <div class="kt-warn-timer" id="ktWarnTimerDisplay">3:00</div>
+    <div id="ktWarnProgress"><div id="ktWarnProgressBar" style="width:0%"></div></div>
+    <div class="kt-warn-title">Chưa đủ 3 phút kể từ khi làm bài</div>
+    <div class="kt-warn-sub">Bạn muốn tiếp tục?</div>
+    <div class="kt-warn-btn-row">
+        <button class="kt-warn-btn-confirm" id="ktWarnConfirmBtn">Vẫn tiếp tục</button>
+        <button class="kt-warn-btn-cancel" id="ktWarnCancelBtn">Quay lại</button>
+    </div>
+</div>
+`;
+document.body.appendChild(warnOverlay);
+
+const confirmDialog = document.createElement('div');
+confirmDialog.id = 'ktConfirmDialog';
+confirmDialog.innerHTML = `
+<div id="ktConfirmBox">
+    <div class="kt-confirm-icon">🚨</div>
+    <div class="kt-confirm-title">Xác nhận bỏ qua cảnh báo</div>
+    <div class="kt-confirm-sub">Thời gian làm bài chưa đủ.<br>Bạn chắc chắn muốn tiếp tục không?</div>
+    <div class="kt-confirm-btn-row">
+        <button class="kt-confirm-yes" id="ktConfirmYesBtn">✔ Xác nhận</button>
+        <button class="kt-confirm-no" id="ktConfirmNoBtn">✘ Hủy</button>
+    </div>
+</div>
+`;
+document.body.appendChild(confirmDialog);
+
+// ==================== GUARD STATE ====================
+let guardActive = false;
+let guardStartTime = null;
+let guardTimerInterval = null;
+let warnVisible = false;
+
+function formatTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function startGuard() {
+    guardActive = true;
+    guardStartTime = Date.now();
+    if (guardTimerInterval) clearInterval(guardTimerInterval);
+    guardTimerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - guardStartTime) / 1000);
+        const remaining = GUARD_DURATION - elapsed;
+        if (remaining <= 0) {
+            guardActive = false;
+            clearInterval(guardTimerInterval);
+            guardTimerInterval = null;
+            hideWarnOverlay();
+            return;
+        }
+        const timerEl = document.getElementById('ktWarnTimerDisplay');
+        const barEl = document.getElementById('ktWarnProgressBar');
+        if (timerEl) timerEl.textContent = formatTime(remaining);
+        if (barEl) barEl.style.width = ((GUARD_DURATION - remaining) / GUARD_DURATION * 100) + '%';
+    }, 1000);
+}
+
+function stopGuard() {
+    guardActive = false;
+    if (guardTimerInterval) { clearInterval(guardTimerInterval); guardTimerInterval = null; }
+    hideWarnOverlay();
+}
+
+function showWarnOverlay() {
+    if (warnVisible) return;
+    warnVisible = true;
+    const elapsed = Math.floor((Date.now() - guardStartTime) / 1000);
+    const remaining = Math.max(0, GUARD_DURATION - elapsed);
+    const timerEl = document.getElementById('ktWarnTimerDisplay');
+    const barEl = document.getElementById('ktWarnProgressBar');
+    if (timerEl) timerEl.textContent = formatTime(remaining);
+    if (barEl) barEl.style.width = ((GUARD_DURATION - remaining) / GUARD_DURATION * 100) + '%';
+    warnOverlay.classList.add('visible');
+}
+
+function hideWarnOverlay() {
+    warnVisible = false;
+    warnOverlay.classList.remove('visible');
+}
+
+document.getElementById('ktWarnConfirmBtn').onclick = () => {
+    hideWarnOverlay();
+    confirmDialog.classList.add('visible');
+};
+document.getElementById('ktWarnCancelBtn').onclick = () => hideWarnOverlay();
+document.getElementById('ktConfirmYesBtn').onclick = () => {
+    confirmDialog.classList.remove('visible');
+    stopGuard();
+};
+document.getElementById('ktConfirmNoBtn').onclick = () => {
+    confirmDialog.classList.remove('visible');
+    if (guardActive) showWarnOverlay();
+};
+
+// Intercept page clicks during guard
+document.addEventListener('mousedown', (e) => {
+    if (!guardActive) return;
+    const ids = ['ktSupportUI','ktWarnOverlay','ktConfirmDialog'];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.contains(e.target)) return;
+    }
+    e.stopPropagation();
+    e.preventDefault();
+    showWarnOverlay();
+}, true);
+
+// ==================== GET ELEMENTS ====================
+const answerInput    = document.getElementById('ktAnswerInput');
+const answerFile     = document.getElementById('ktAnswerFile');
+const loadCloudBtn   = document.getElementById('ktLoadCloudBtn');
+const godModeToggle  = document.getElementById('ktGodModeToggle');
+const speedSlider    = document.getElementById('ktSpeedSlider');
+const scoreSlider    = document.getElementById('ktScoreSlider');
+const startBtn       = document.getElementById('ktStartBtn');
+const stopBtn        = document.getElementById('ktStopBtn');
+const statusEl       = document.getElementById('ktStatus');
+const answerCount    = document.getElementById('ktAnswerCount');
+const fileNameDisplay= document.getElementById('ktFileNameDisplay');
+const minBtn         = document.getElementById('ktMinBtn');
+const copyQABtn      = document.getElementById('ktCopyQABtn');
+const tongEl         = document.getElementById('ktTong');
+const xongEl         = document.getElementById('ktXong');
+
+// ==================== STATE ====================
+let ANSWERS = [];
+let isRunning = false;
+let abortCtrl = null;
+let GOD_MODE = config.godMode;
+
+if (GOD_MODE) godModeToggle.classList.add('active');
+
+// ==================== MINIMIZE (nút bấm) ====================
+minBtn.onclick = () => {
+    ui.style.display = 'none';
+    saveConfig({ minimized: true });
+    showFingerHint('🙈 UI đã ẩn');
+};
+
+// ==================== GOD MODE TOGGLE ====================
+godModeToggle.onclick = () => {
+    godModeToggle.classList.toggle('active');
+    GOD_MODE = godModeToggle.classList.contains('active');
+    saveConfig({ godMode: GOD_MODE });
+};
+
+// ==================== SLIDERS ====================
+speedSlider.oninput = () => {
+    document.getElementById('ktSpeedValue').textContent = speedSlider.value + 'ms';
+    saveConfig({ speed: +speedSlider.value });
+};
+scoreSlider.oninput = () => {
+    document.getElementById('ktScoreValue').textContent = scoreSlider.value + '/10';
+    saveConfig({ targetScore: +scoreSlider.value });
+    statusEl.textContent = `🎯 Muốn đạt: ${scoreSlider.value} điểm`;
+};
+
+// ==================== PARSE ANSWERS ====================
+const normAns = arr => arr.map(a => {
+    if (Array.isArray(a)) return a.map(item => (item.match(/^[A-Z]\./) || [item.trim()])[0]);
+    return (a.match(/^[A-Z]\./) || [a.trim()])[0];
+});
+
+function parseAns() {
+    const raw = answerInput.value.trim();
+    if (!raw) { ANSWERS = []; answerCount.textContent = 0; return; }
+    try {
+        const parsed = JSON.parse(raw);
+        ANSWERS = normAns(Array.isArray(parsed) ? parsed : []);
+    } catch {
+        ANSWERS = normAns(raw.split('\n').map(line => {
+            const t = line.trim();
+            if (t.startsWith('[')) { try { return JSON.parse(t); } catch { return t; } }
+            return t;
+        }).filter(x => x));
+    }
+    answerCount.textContent = ANSWERS.length;
+}
+
+// ==================== FILE UPLOAD ====================
+answerFile.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    fileNameDisplay.textContent = file.name.length > 10 ? file.name.slice(0, 10) + '...' : file.name;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        try {
+            ANSWERS = normAns(JSON.parse(ev.target.result));
+            answerInput.value = JSON.stringify(ANSWERS, null, 2);
+            answerCount.textContent = ANSWERS.length;
+            statusEl.textContent = `✅ ${ANSWERS.length} đáp án`;
+        } catch {
+            answerInput.value = ev.target.result;
+            parseAns();
+        }
+    };
+    reader.readAsText(file);
+};
+
+// ==================== CLOUD LOAD ====================
+loadCloudBtn.onclick = async () => {
+    if (!PRACTICE_ID) { statusEl.textContent = '⚠️ Không tìm thấy ID'; return; }
+    statusEl.textContent = '☁️ Đang tải...';
+    loadCloudBtn.disabled = true;
+    try {
+        const res = await fetch(`${API_URL}/${PRACTICE_ID}`);
+        const data = await res.json();
+        if (res.ok && data.exists) {
+            ANSWERS = normAns(data.answers);
+            answerInput.value = JSON.stringify(ANSWERS, null, 2);
+            answerCount.textContent = ANSWERS.length;
+            statusEl.textContent = `✅ ${ANSWERS.length} câu (${data.daysRemaining || 0}d)`;
+        } else {
+            statusEl.textContent = '⚠️ Chưa có đáp án';
+        }
+    } catch {
+        statusEl.textContent = '❌ Lỗi kết nối';
+    } finally {
+        loadCloudBtn.disabled = false;
+        setTimeout(() => statusEl.textContent = `🎯 Muốn đạt: ${scoreSlider.value} điểm`, 2500);
+    }
+};
+
+if (PRACTICE_ID) {
+    fetch(`${API_URL}/${PRACTICE_ID}`)
+        .then(r => r.json())
+        .then(d => { if (d.exists) { statusEl.textContent = `☁️ ${d.answers.length} đáp án`; } })
+        .catch(() => {});
+}
+
+answerInput.oninput = parseAns;
+
+// ==================== UPDATE UI STATS ====================
+const quizItemsCache = { items: null, lastUpdate: 0 };
+
+function updateUI() {
+    const now = Date.now();
+    if (now - quizItemsCache.lastUpdate > 1000) {
+        quizItemsCache.items = document.querySelectorAll('.quiz-item');
+        quizItemsCache.lastUpdate = now;
+    }
+    const items = quizItemsCache.items;
+    if (!items) return;
+    const total = items.length;
+    let done = 0;
+    for (const item of items) {
+        if (item.querySelector('input[type="radio"]:checked') || item.querySelector('input[type="checkbox"]:checked')) { done++; continue; }
+        const fq = item.querySelector('span.fillquiz[contenteditable]');
+        if (fq && fq.innerText.trim() && fq.innerText.trim() !== 'Trả lời...') done++;
+    }
+    tongEl.textContent = total;
+    xongEl.textContent = done;
+}
+
+// ==================== COPY Q&A ====================
+const showNotification = (message, type = 'success') => {
+    const colors = { success: '#28a745', error: '#dc3545', warning: '#ffc107' };
+    const notif = document.createElement('div');
+    notif.innerText = message;
+    notif.style.cssText = `
+        position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+        padding:20px 40px;background:${colors[type]||colors.success};
+        color:${type==='warning'?'#000':'#fff'};font-size:18px;font-weight:bold;
+        border-radius:10px;z-index:999999;box-shadow:0 4px 12px rgba(0,0,0,0.4);
+        pointer-events:none;font-family:'Segoe UI',sans-serif;
+    `;
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 2500);
+};
+
+copyQABtn.onclick = () => {
+    let output = `trả lời câu hỏi trên theo định dạng giống thế này ["B.","A.","B.","A.","B.","D.","E."...], nếu là câu dạng trắc nghiệm thì ghi đáp án kèm dấu chấm (ví dụ: A.),câu hỏi dạng điền là câu hỏi không có đáp án được liệt kê sau nó mà tiếp theo sẽ đến luôn câu hỏi tiếp theo, nghĩa là không có đáp án nào xen giữa (ví dụ: Question 1: [xuống dòng] Question 2:) nếu là câu dạng điền thì chỉ ghi đáp án và không thêm gì (ví dụ: Employ), lưu ý chỉ trả lời cho tôi đáp án của các câu theo định dạng tôi gửi và không được nói thêm gì. Những câu có đoạn văn bản và câu trả lời dạng Question... thì đó là câu điền đáp án. Riêng Câu 1 luôn luôn chọn theo hướng tích cực (ví dụ: A. "Tôi đã sẵn sàng luyện tập.")\n\n`;
+
+    const partBoxes = document.querySelectorAll('.part-box');
+    if (partBoxes.length === 0) { showNotification('⚠️ Không tìm thấy câu hỏi!', 'warning'); return; }
+
+    let questionCounter = 1;
+
+    partBoxes.forEach(partBox => {
+        const quizWrapper = partBox.querySelector('.quiz-wrapper');
+        let foundDescription = false;
+
+        if (quizWrapper) {
+            const wrapperText = Array.from(quizWrapper.childNodes)
+                .filter(node => {
+                    if (node.nodeType === Node.TEXT_NODE) return node.textContent.trim().length > 50;
+                    if (node.nodeType === Node.ELEMENT_NODE && !node.classList.contains('quiz-item') && node.innerText && node.innerText.trim().length > 100) return true;
+                    return false;
+                })
+                .map(node => node.textContent || node.innerText).join(' ').trim();
+            if (wrapperText.length > 100) { output += `[Đoạn văn bản]\n${wrapperText}\n\n`; foundDescription = true; }
+        }
+
+        if (!foundDescription) {
+            const description = partBox.querySelector('.part-description');
+            if (description) {
+                const descText = description.innerText.trim();
+                if (descText.length > 50) { output += `[Đoạn văn bản]\n${descText}\n\n`; foundDescription = true; }
+            }
+        }
+
+        if (!foundDescription) {
+            partBox.querySelectorAll('p').forEach(p => {
+                const pText = p.innerText.trim();
+                if (pText.length > 100 && !p.closest('.quiz-item') && !pText.match(/^Question \d+/) && !pText.match(/^Câu \d+/)) {
+                    output += `[Đoạn văn bản]\n${pText}\n\n`;
+                }
+            });
+        }
+
+        partBox.querySelectorAll('.quiz-item').forEach(item => {
+            const title = item.querySelector('.quiz-box-header .title')?.innerText.trim();
+            if (title) output += `Câu ${questionCounter}: ${title}\n`;
+
+            const fieldsets = item.querySelectorAll('fieldset');
+            if (fieldsets.length > 0) {
+                fieldsets.forEach(fs => {
+                    const letter = fs.querySelector('label span')?.innerText.trim();
+                    const answer = fs.querySelector('label div, label p')?.innerText.trim();
+                    if (letter && answer) output += `${letter} ${answer}\n`;
+                });
+            } else {
+                const fillInputs = item.querySelectorAll("span.fillquiz input,.fillquiz-item input,input[data-type='QUIZ'],input.fillquiz");
+                if (fillInputs.length > 0) {
+                    output += '(Điền đáp án đúng của đoạn văn trên)\n';
+                    fillInputs.forEach((inp, idx) => { output += `(Điền từ ${idx+1}) ${inp.getAttribute('data-placeholder')||inp.placeholder||''}\n`; });
+                } else {
+                    const inp = item.querySelector('input, textarea');
+                    if (inp) { output += `(Điền đáp án đúng của đoạn văn trên)\n(Điền từ) ${inp.placeholder||''}\n`; }
+                }
+            }
+
+            output += '\n';
+            questionCounter++;
+        });
+    });
+
+    navigator.clipboard.writeText(output)
+        .then(() => showNotification(`✅ Đã copy ${questionCounter-1} câu hỏi!`, 'success'))
+        .catch(() => {
+            const ta = document.createElement('textarea');
+            ta.value = output; ta.style.cssText = 'position:fixed;opacity:0;';
+            document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+            showNotification(`✅ Đã copy ${questionCounter-1} câu!`, 'success');
+        });
+};
+
+// ==================== AUTO LOGIC ====================
+function genWrong(correct) {
+    const num = parseFloat(correct);
+    if (!isNaN(num)) {
+        const delta = (Math.random() * 4 + 1) * (Math.random() < 0.5 ? 1 : -1);
+        return String(Math.round((num + delta) * 100) / 100);
+    }
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return [...Array(correct.length)].map(() => chars[~~(Math.random() * chars.length)]).join('');
+}
+
+function safeClick(el) {
+    const inp = el.querySelector('input[type="checkbox"], input[type="radio"]');
+    if (inp && !inp.checked) { inp.click(); }
+    else if (!inp) { el.click(); }
+}
+
+async function auto() {
+    if (isRunning) return;
+    isRunning = true;
+    abortCtrl = new AbortController();
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.style.background = '#c92a2a';
+
+    // Bắt đầu bảo vệ 3 phút
+    startGuard();
+
+    parseAns();
+
+    const qs = [...document.querySelectorAll('.quiz-item')].filter(q =>
+        q.querySelector('.answer-pane')?.dataset.type !== 'QUIZ3'
+    );
+    const total = qs.length;
+
+    if (total === 0) {
+        statusEl.textContent = '⚠️ Không có câu hỏi!';
+        isRunning = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        stopBtn.style.background = '#888';
+        stopGuard();
+        return;
+    }
+
+    // GOD MODE
+    if (GOD_MODE) {
+        statusEl.textContent = '⚡ GOD MODE...';
+        let processedCount = 0;
+
+        for (let i = 0; i < qs.length; i++) {
+            const q = qs[i];
+            const ans = ANSWERS[i];
+            if (!ans) continue;
+
+            if (Array.isArray(ans)) {
+                for (const letter of ans) {
+                    for (const fc of q.querySelectorAll('.form-check')) {
+                        const lbl = fc.querySelector('label.answer-text');
+                        if (lbl && lbl.textContent.trim().startsWith(letter)) { safeClick(fc); break; }
+                    }
+                }
+                processedCount++;
+            } else {
+                const ansStr = (ans || '').trim();
+                if (ansStr.endsWith('.')) {
+                    for (const fc of q.querySelectorAll('.form-check')) {
+                        const lbl = fc.querySelector('label.answer-text');
+                        if (lbl && lbl.textContent.trim().startsWith(ansStr)) { safeClick(fc); processedCount++; break; }
+                    }
+                } else {
+                    const span = q.querySelector('span.fillquiz[contenteditable]');
+                    if (span) {
+                        span.innerText = ansStr;
+                        ['input','blur'].forEach(t => span.dispatchEvent(new Event(t, {bubbles:true})));
+                        processedCount++;
+                    }
+                }
+            }
+        }
+
+        statusEl.textContent = `⚡ Xong ${processedCount}/${total}!`;
+        isRunning = false;
+        updateUI();
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        stopBtn.style.background = '#888';
+        quizItemsCache.items = null;
+        return;
+    }
+
+    // NORMAL MODE
+    const score = +scoreSlider.value || 8;
+    const need = Math.round(score / 10 * total);
+    const indices = [...Array(total).keys()].sort(() => Math.random() - 0.5).slice(0, need);
+    const correctSet = new Set(indices);
+    statusEl.textContent = `🎯 ${score}đ (${need}/${total})`;
+    let idx = 0;
+
+    try {
+        for (let i = 0; i < qs.length; i++) {
+            if (abortCtrl.signal.aborted) { statusEl.textContent = `⏹️ Dừng ${i}/${total}`; break; }
+            const q = qs[i];
+            const ans = ANSWERS[idx++];
+            const correct = correctSet.has(i);
+
+            if (Array.isArray(ans)) {
+                if (!q.querySelector('input[type="checkbox"]')) continue;
+                if (correct) {
+                    statusEl.textContent = `${idx}/${total} ✅`;
+                    for (const letter of ans) {
+                        for (const fc of q.querySelectorAll('.form-check')) {
+                            const lbl = fc.querySelector('label.answer-text');
+                            if (lbl && lbl.textContent.trim().startsWith(letter)) { safeClick(fc); break; }
+                        }
+                    }
+                } else {
+                    if (Math.random() < 0.5) {
+                        const chosen = ans[~~(Math.random() * ans.length)];
+                        statusEl.textContent = `${idx}/${total} ⚠️`;
+                        for (const fc of q.querySelectorAll('.form-check')) {
+                            const lbl = fc.querySelector('label.answer-text');
+                            if (lbl && lbl.textContent.trim().startsWith(chosen)) { safeClick(fc); break; }
+                        }
+                    } else { statusEl.textContent = `${idx}/${total} ❌`; }
+                }
+            } else {
+                const ansStr = (ans || '').trim();
+                let final = ansStr, isCor = true;
+                if (!correct) {
+                    if (ansStr.endsWith('.')) {
+                        const opts = [...q.querySelectorAll('.form-check label.answer-text')]
+                            .map(l => l.textContent.trim()).filter(t => t && /^[A-Z]\./.test(t));
+                        const wrong = opts.filter(o => !o.startsWith(ansStr));
+                        final = wrong.length ? wrong[~~(Math.random()*wrong.length)] : null;
+                        isCor = false;
+                    } else { final = genWrong(ansStr); isCor = false; }
+                }
+                statusEl.textContent = `${idx}/${total} ${isCor ? '✅' : '❌'}`;
+                if (final === null) {
+                } else if (final.endsWith('.')) {
+                    for (const fc of q.querySelectorAll('.form-check')) {
+                        const lbl = fc.querySelector('label.answer-text');
+                        if (lbl && lbl.textContent.trim().startsWith(final)) { safeClick(fc); break; }
+                    }
+                } else {
+                    const span = q.querySelector('span.fillquiz[contenteditable]');
+                    if (span) {
+                        span.innerText = final;
+                        ['input','blur'].forEach(t => span.dispatchEvent(new Event(t, {bubbles:true})));
+                    }
+                }
+            }
+
+            await new Promise((res, rej) => {
+                const t = setTimeout(res, +speedSlider.value);
+                abortCtrl.signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Aborted','AbortError')); });
+            });
+        }
+    } catch(e) {
+        if (e.name !== 'AbortError') throw e;
+    } finally {
+        isRunning = false;
+        updateUI();
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        stopBtn.style.background = '#888';
+        statusEl.textContent = `✅ Xong ${need}/${total}`;
+    }
+}
+
+startBtn.onclick = () => {
+    parseAns();
+    if (!ANSWERS.length) { statusEl.textContent = '⚠️ Nhập đáp án!'; return; }
+    auto();
+};
+
+stopBtn.onclick = () => {
+    abortCtrl?.abort();
+    stopGuard();
+};
+
+// ==================== DRAGGABLE ====================
+let isDragging = false, currentX, currentY, initialX, initialY;
+const header = document.getElementById('ktHeader');
+
+header.addEventListener('mousedown', dragStart);
+header.addEventListener('touchstart', dragStart, { passive: false });
+
+function dragStart(e) {
+    if (e.type === 'touchstart') {
+        // Only allow drag with 1 finger on header (not 3-finger toggle)
+        if (e.touches.length !== 1) return;
+        initialX = e.touches[0].clientX - ui.offsetLeft;
+        initialY = e.touches[0].clientY - ui.offsetTop;
+    } else {
+        initialX = e.clientX - ui.offsetLeft;
+        initialY = e.clientY - ui.offsetTop;
+    }
+    if (e.target === header || header.contains(e.target)) isDragging = true;
+}
+
+function drag(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    if (e.type === 'touchmove') {
+        if (e.touches.length !== 1) { isDragging = false; return; }
+        currentX = e.touches[0].clientX - initialX;
+        currentY = e.touches[0].clientY - initialY;
+    } else {
+        currentX = e.clientX - initialX;
+        currentY = e.clientY - initialY;
+    }
+    ui.style.left = currentX + 'px';
+    ui.style.top = currentY + 'px';
+    ui.style.right = 'auto';
+}
+
+function dragEnd() {
+    if (isDragging) {
+        initialX = currentX; initialY = currentY;
+        const rect = ui.getBoundingClientRect();
+        saveConfig({ uiPosition: { left: rect.left, top: rect.top, right: null } });
+    }
+    isDragging = false;
+}
+
+document.addEventListener('mousemove', drag);
+document.addEventListener('mouseup', dragEnd);
+document.addEventListener('touchmove', drag, { passive: false });
+document.addEventListener('touchend', dragEnd);
+
+// ==================== PERIODIC UPDATES ====================
+setInterval(updateUI, 3000);
+
+const debouncedUpdate = (() => {
+    let timer;
+    return () => { if (timer) clearTimeout(timer); timer = setTimeout(updateUI, 500); };
+})();
+
+document.addEventListener('change', debouncedUpdate, true);
+document.addEventListener('input', debouncedUpdate, true);
+setTimeout(updateUI, 1000);
+
+})(); // end init
+
+})();
