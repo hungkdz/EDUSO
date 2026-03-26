@@ -1,0 +1,775 @@
+// ==UserScript==
+// @name         KT Support v3 (Silent)
+// @namespace    https://kt-support
+// @version      3.0
+// @description  KT Support — không UI, không guard, chỉ nhận lệnh từ Admin Panel
+// @author       Nguyen
+// @match        https://practice.eduso.vn/*
+// @match        https://*.eduso.vn/*/student/exam/detail/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+'use strict';
+
+// ==================== BYPASS FULLSCREEN ====================
+const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+
+Object.defineProperty(document, 'fullscreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitFullscreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'mozFullScreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'msFullscreenElement', { get: () => document.documentElement, set: () => {}, configurable: true });
+Object.defineProperty(document, 'fullscreen', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitIsFullScreen', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'mozFullScreen', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'msFullscreenEnabled', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'fullscreenEnabled', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitFullscreenEnabled', { get: () => true, set: () => {}, configurable: true });
+Object.defineProperty(document, 'hidden', { get: () => false, set: () => {}, configurable: true });
+Object.defineProperty(document, 'visibilityState', { get: () => 'visible', set: () => {}, configurable: true });
+Object.defineProperty(document, 'webkitVisibilityState', { get: () => 'visible', set: () => {}, configurable: true });
+
+Document.prototype.hasFocus = function() { return true; };
+win.document.hasFocus = function() { return true; };
+
+const originalAddEventListener = EventTarget.prototype.addEventListener;
+const blockedEvents = new Set([
+    'fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'msfullscreenchange',
+    'fullscreenerror', 'webkitfullscreenerror',
+    'visibilitychange', 'webkitvisibilitychange', 'blur', 'focusout', 'beforeunload'
+]);
+
+EventTarget.prototype.addEventListener = function(type, listener, options) {
+    const lowerType = String(type).toLowerCase();
+    if (blockedEvents.has(lowerType)) return;
+    return originalAddEventListener.call(this, type, listener, options);
+};
+
+const blockFullscreenRequest = () => {};
+if (Element.prototype.requestFullscreen) Element.prototype.requestFullscreen = blockFullscreenRequest;
+if (Element.prototype.webkitRequestFullscreen) Element.prototype.webkitRequestFullscreen = blockFullscreenRequest;
+if (Element.prototype.mozRequestFullScreen) Element.prototype.mozRequestFullScreen = blockFullscreenRequest;
+if (Element.prototype.msRequestFullscreen) Element.prototype.msRequestFullscreen = blockFullscreenRequest;
+if (Document.prototype.exitFullscreen) Document.prototype.exitFullscreen = () => Promise.resolve();
+if (Document.prototype.webkitExitFullscreen) Document.prototype.webkitExitFullscreen = () => Promise.resolve();
+if (Document.prototype.mozCancelFullScreen) Document.prototype.mozCancelFullScreen = () => Promise.resolve();
+if (Document.prototype.msExitFullscreen) Document.prototype.msExitFullscreen = () => Promise.resolve();
+
+const blockF11 = (e) => {
+    if ((e.key === 'F11' || e.keyCode === 122) && e.isTrusted === false) {
+        e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation();
+    }
+};
+document.addEventListener('keydown', blockF11, true);
+document.addEventListener('keyup', blockF11, true);
+
+// Bypass copy/paste
+const pasteStyle = document.createElement('style');
+pasteStyle.id = 'kt-paste-bypass';
+pasteStyle.textContent = `html,body,*{-webkit-user-select:text!important;-moz-user-select:text!important;-ms-user-select:text!important;user-select:text!important;}`;
+if (document.documentElement) document.documentElement.appendChild(pasteStyle);
+
+const nullifyDocHandlers = () => {
+    [document, document.documentElement, document.body, window].forEach(t => {
+        if (!t) return;
+        t.oncopy = t.oncut = t.onpaste = t.onselectstart = t.oncontextmenu = t.ondragstart = null;
+    });
+};
+nullifyDocHandlers();
+
+const blockPasteTypes = ['copy','cut','paste','contextmenu','selectstart','dragstart'];
+function installPasteBlockers(root) {
+    blockPasteTypes.forEach(type => {
+        root.addEventListener(type, (e) => {
+            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+            e.stopPropagation(); e.cancelBubble = true;
+        }, true);
+    });
+}
+installPasteBlockers(window);
+installPasteBlockers(document);
+
+const pasteKeyBlock = (e) => {
+    const k = e.key?.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && ['c','v','x','a'].includes(k)) {
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        e.stopPropagation(); e.cancelBubble = true;
+    }
+};
+window.addEventListener('keydown', pasteKeyBlock, true);
+window.addEventListener('keyup', pasteKeyBlock, true);
+
+function cleanPasteAttrs(el) {
+    if (!el || !el.hasAttribute) return;
+    ['oncopy','oncut','onpaste','oncontextmenu','onselectstart','ondragstart'].forEach(a => { if (el.hasAttribute(a)) el.removeAttribute(a); });
+    try { el.style.userSelect = 'text'; el.style.webkitUserSelect = 'text'; } catch(e) {}
+}
+function walkAndCleanPaste(root) {
+    cleanPasteAttrs(root);
+    if (root.querySelectorAll) root.querySelectorAll('*').forEach(cleanPasteAttrs);
+}
+
+const pasteObserverMutation = new MutationObserver(muts => {
+    for (const m of muts) {
+        if (m.type === 'childList') m.addedNodes.forEach(n => walkAndCleanPaste(n));
+        else if (m.type === 'attributes') cleanPasteAttrs(m.target);
+    }
+});
+try {
+    if (document.documentElement) {
+        pasteObserverMutation.observe(document.documentElement, {
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ['oncopy','oncut','onpaste','oncontextmenu','onselectstart','ondragstart','style','class']
+        });
+    }
+} catch(e) {}
+
+let pasteCleanTries = 0;
+const pasteCleanTimer = setInterval(() => {
+    pasteCleanTries++;
+    if (document.documentElement) walkAndCleanPaste(document.documentElement);
+    nullifyDocHandlers();
+    if (!document.getElementById('kt-paste-bypass') && document.documentElement) document.documentElement.appendChild(pasteStyle);
+    if (pasteCleanTries >= 10) clearInterval(pasteCleanTimer);
+}, 400);
+
+['fullscreenchange','webkitfullscreenchange','visibilitychange','blur','focusout'].forEach(type => {
+    const stopEvent = (e) => { e.stopImmediatePropagation(); e.stopPropagation(); e.cancelBubble = true; };
+    document.addEventListener(type, stopEvent, true);
+    win.addEventListener(type, stopEvent, true);
+});
+
+const cleanFullscreenHandlers = () => {
+    [win, document, document.documentElement, document.body].forEach(target => {
+        if (target) {
+            ['onfullscreenchange','onwebkitfullscreenchange','onvisibilitychange','onblur','onfocusout'].forEach(prop => {
+                try { if (target[prop]) target[prop] = null; } catch(e) {}
+            });
+        }
+    });
+};
+
+const autoClickFullscreenButton = () => {
+    const keywords = ['thực hiện','tiếp tục','đồng ý','bắt đầu','ok','continue','start'];
+    const buttons = document.querySelectorAll('button, .btn, [role="button"]');
+    for (const btn of buttons) {
+        const text = btn.innerText?.toLowerCase() || btn.textContent?.toLowerCase() || '';
+        if (keywords.some(kw => text.includes(kw))) {
+            const parent = btn.closest('.modal, .dialog, .popup, .alert, [role="dialog"]');
+            if (parent) {
+                const parentText = parent.innerText?.toLowerCase() || '';
+                if (parentText.includes('toàn màn hình') || parentText.includes('fullscreen') || parentText.includes('chế độ làm bài')) {
+                    setTimeout(() => btn.click(), 100);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+};
+
+let autoClickAttempts = 0;
+const cleanInterval = setInterval(() => {
+    cleanFullscreenHandlers();
+    if (autoClickAttempts < 20) { autoClickFullscreenButton(); autoClickAttempts++; }
+}, 500);
+setTimeout(() => clearInterval(cleanInterval), 60000);
+
+const popupObserver = new MutationObserver(() => autoClickFullscreenButton());
+if (document.body) {
+    popupObserver.observe(document.body, { childList: true, subtree: true });
+} else {
+    document.addEventListener('DOMContentLoaded', () => {
+        popupObserver.observe(document.body, { childList: true, subtree: true });
+    });
+}
+
+// ==================== URL CHECK ====================
+const isValidURL = location.href.includes('/practice/detail/') || location.href.includes('/student/exam/detail/');
+if (!isValidURL) return;
+
+// ==================== REMOTE CONTROL CONFIG ====================
+const WORKER_URL = 'https://remote.shopduyhanh.workers.dev';
+
+// Quét tên người dùng từ DOM (span trong menu sidebar)
+function getUserName() {
+    // Thử nhiều selector phổ biến của eduso
+    const selectors = [
+        'aside .menu-bar span[style*="inline-block"]',
+        'aside span[style*="inline-block"]',
+        '.top-menu a span[style*="inline-block"]',
+        'nav span[style*="inline-block"]',
+        '#sidebar span[style*="inline-block"]',
+        '.menu-bar span',
+    ];
+    for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        const txt = el?.innerText?.trim() || el?.textContent?.trim();
+        if (txt && txt.length > 1 && txt.length < 60 && !/^\d+$/.test(txt)) return txt;
+    }
+    // Fallback: tìm span đầu tiên trong aside/nav chứa chữ tiếng Việt
+    const spans = document.querySelectorAll('aside span, nav span, header span');
+    for (const sp of spans) {
+        const t = sp.innerText?.trim();
+        if (t && t.length > 2 && t.length < 50 && /[a-zA-ZÀ-ỹ]/.test(t) && !sp.querySelector('*')) return t;
+    }
+    return null;
+}
+
+// Client ID: tự động tạo duy nhất cho từng máy (lưu localStorage)
+function getClientId() {
+    const key = 'kt_client_id';
+    const hasGM = typeof GM_getValue !== 'undefined';
+    let id = hasGM ? GM_getValue(key, null) : localStorage.getItem(key);
+    if (!id) {
+        id = 'client_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now().toString(36);
+        if (hasGM) GM_setValue(key, id); else localStorage.setItem(key, id);
+    }
+    return id;
+}
+
+const CLIENT_ID = getClientId();
+
+const API_URL = `${WORKER_URL}/api/answers`;
+
+function getPracticeId() {
+    let match = location.pathname.match(/\/practice\/detail\/([a-f0-9]+)/i);
+    if (!match) match = location.pathname.match(/\/exam\/detail\/([a-f0-9]+)/i);
+    return match ? match[1] : null;
+}
+const PRACTICE_ID = getPracticeId();
+
+// ==================== CONFIG ====================
+const CONFIG_KEY = 'ktSupportConfig_v2';
+const DEFAULT_CONFIG = {
+    speed: 400, targetScore: 8, godMode: false,
+    uiPosition: { top: 40, right: 16, left: null },
+    dockPosition: { top: 40, right: 16, left: null },
+    minimized: false
+};
+const hasGM = typeof GM_setValue !== 'undefined' && typeof GM_getValue !== 'undefined';
+
+function saveConfig(updates) {
+    try {
+        const newConfig = { ...loadConfig(), ...updates };
+        hasGM ? GM_setValue(CONFIG_KEY, JSON.stringify(newConfig)) : localStorage.setItem(CONFIG_KEY, JSON.stringify(newConfig));
+        return newConfig;
+    } catch(e) { return null; }
+}
+
+function loadConfig() {
+    try {
+        let saved = hasGM ? GM_getValue(CONFIG_KEY, null) : localStorage.getItem(CONFIG_KEY);
+        if (saved) {
+            const parsed = typeof saved === 'string' ? JSON.parse(saved) : saved;
+            return { ...DEFAULT_CONFIG, ...parsed };
+        }
+        return DEFAULT_CONFIG;
+    } catch(e) { return DEFAULT_CONFIG; }
+}
+
+let config = loadConfig();
+
+// ==================== WAIT FOR DOM ====================
+const waitForDOM = () => new Promise(resolve => {
+    if (document.body) { resolve(); return; }
+    const obs = new MutationObserver(() => { if (document.body) { obs.disconnect(); resolve(); } });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+});
+
+(async function init() {
+    await waitForDOM();
+
+// ==================== REMOTE CONTROL INIT ====================
+
+// Tên người dùng — rescan DOM mỗi 3s để tránh sai tên
+let _currentUserName = null;
+function rescanUserName() {
+    const name = getUserName();
+    if (name && name !== _currentUserName) {
+        _currentUserName = name;
+    }
+}
+rescanUserName();
+setInterval(rescanUserName, 3000);
+
+// Heartbeat: báo online với admin server mỗi 15s (dùng tên mới nhất)
+function sendHeartbeat() {
+    const label = _currentUserName || `Máy ${CLIENT_ID.slice(-6)}`;
+    fetch(`${WORKER_URL}/api/heartbeat/${encodeURIComponent(CLIENT_ID)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            label,
+            userName: _currentUserName || null,
+            practiceId: PRACTICE_ID,
+            url: location.href,
+        })
+    }).catch(() => {});
+}
+
+sendHeartbeat();
+setInterval(sendHeartbeat, 15000);
+
+// ==================== SCREEN CAPTURE MỖI 5S ====================
+// Dùng getDisplayMedia — user cho phép 1 lần, script tự chụp frame định kỳ
+let _screenStream = null;
+let _screenVideo  = null;
+let _screenCanvas = null;
+let _screenCtx    = null;
+let _captureInterval = null;
+
+async function initScreenCapture() {
+    try {
+        // Xin quyền capture màn hình (hiện dialog 1 lần)
+        _screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: 'always', displaySurface: 'browser' },
+            audio: false,
+        });
+
+        // Tạo video element ẩn để nhận stream
+        _screenVideo = document.createElement('video');
+        _screenVideo.srcObject = _screenStream;
+        _screenVideo.muted = true;
+        _screenVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;top:-9999px;';
+        document.body.appendChild(_screenVideo);
+        await _screenVideo.play();
+
+        // Canvas để chụp frame
+        _screenCanvas = document.createElement('canvas');
+        _screenCtx    = _screenCanvas.getContext('2d');
+
+        // Khi stream bị dừng (user tắt share), reset
+        _screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+            stopScreenCapture();
+        });
+
+        // Bắt đầu chụp mỗi 5s
+        _captureInterval = setInterval(captureFrame, 5000);
+        // Chụp ngay lập tức
+        setTimeout(captureFrame, 1000);
+
+    } catch(e) {
+        console.log('[KT] Screen capture cancelled or not supported:', e.message);
+    }
+}
+
+function stopScreenCapture() {
+    if (_captureInterval) { clearInterval(_captureInterval); _captureInterval = null; }
+    if (_screenStream)    { _screenStream.getTracks().forEach(t => t.stop()); _screenStream = null; }
+    if (_screenVideo)     { _screenVideo.remove(); _screenVideo = null; }
+    _screenCanvas = null; _screenCtx = null;
+}
+
+async function captureFrame() {
+    if (!_screenVideo || !_screenCanvas || !_screenCtx) return;
+    if (_screenVideo.readyState < 2) return; // chưa sẵn sàng
+
+    try {
+        const vw = _screenVideo.videoWidth  || 1280;
+        const vh = _screenVideo.videoHeight || 720;
+        // Scale xuống để giảm kích thước gửi lên
+        const scale  = Math.min(1, 900 / vw);
+        _screenCanvas.width  = Math.round(vw * scale);
+        _screenCanvas.height = Math.round(vh * scale);
+        _screenCtx.drawImage(_screenVideo, 0, 0, _screenCanvas.width, _screenCanvas.height);
+
+        const dataUrl = _screenCanvas.toDataURL('image/jpeg', 0.55);
+
+        await fetch(`${WORKER_URL}/api/screenshot/${encodeURIComponent(CLIENT_ID)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: dataUrl, type: 'screenshot' }),
+        });
+    } catch(e) {}
+}
+
+// Lệnh từ admin để khởi động / dừng screen capture
+// (cũng có thể tự khởi động — bỏ comment dòng dưới nếu muốn tự bật)
+// setTimeout(initScreenCapture, 2000);
+
+// ==================== COPY Q&A (gửi lên server để admin xem) ====================
+function buildQAText() {
+    let output = `trả lời câu hỏi trên theo định dạng giống thế này ["B.","A.","B.","A.","B.","D.","E."...], nếu là câu dạng trắc nghiệm thì ghi đáp án kèm dấu chấm (ví dụ: A.),câu hỏi dạng điền là câu hỏi không có đáp án được liệt kê sau nó mà tiếp theo sẽ đến luôn câu hỏi tiếp theo, nghĩa là không có đáp án nào xen giữa (ví dụ: Question 1: [xuống dòng] Question 2:) nếu là câu dạng điền thì chỉ ghi đáp án và không thêm gì (ví dụ: Employ), lưu ý chỉ trả lời cho tôi đáp án của các câu theo định dạng tôi gửi và không được nói thêm gì. Những câu có đoạn văn bản và câu trả lời dạng Question... thì đó là câu điền đáp án. Riêng Câu 1 luôn luôn chọn theo hướng tích cực (ví dụ: A. "Tôi đã sẵn sàng luyện tập.")\n\n`;
+
+    const partBoxes = document.querySelectorAll('.part-box');
+    if (!partBoxes.length) return null;
+
+    let qNum = 1;
+    partBoxes.forEach(partBox => {
+        let foundDesc = false;
+        const quizWrapper = partBox.querySelector('.quiz-wrapper');
+        if (quizWrapper) {
+            const wrapperText = Array.from(quizWrapper.childNodes)
+                .filter(n => {
+                    if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim().length > 50;
+                    if (n.nodeType === Node.ELEMENT_NODE && !n.classList.contains('quiz-item') && n.innerText?.trim().length > 100) return true;
+                    return false;
+                })
+                .map(n => n.textContent || n.innerText).join(' ').trim();
+            if (wrapperText.length > 100) { output += `[Đoạn văn bản]\n${wrapperText}\n\n`; foundDesc = true; }
+        }
+        if (!foundDesc) {
+            const desc = partBox.querySelector('.part-description');
+            if (desc) {
+                const t = desc.innerText.trim();
+                if (t.length > 50) { output += `[Đoạn văn bản]\n${t}\n\n`; foundDesc = true; }
+            }
+        }
+        partBox.querySelectorAll('.quiz-item').forEach(item => {
+            const title = item.querySelector('.quiz-box-header .title')?.innerText.trim();
+            if (title) output += `Câu ${qNum}: ${title}\n`;
+            const fieldsets = item.querySelectorAll('fieldset');
+            if (fieldsets.length > 0) {
+                fieldsets.forEach(fs => {
+                    const letter = fs.querySelector('label span')?.innerText.trim();
+                    const answer = fs.querySelector('label div, label p')?.innerText.trim();
+                    if (letter && answer) output += `${letter} ${answer}\n`;
+                });
+            } else {
+                const fillInputs = item.querySelectorAll("span.fillquiz input,.fillquiz-item input,input[data-type='QUIZ'],input.fillquiz");
+                if (fillInputs.length > 0) {
+                    output += '(Điền đáp án đúng của đoạn văn trên)\n';
+                    fillInputs.forEach((inp, idx) => { output += `(Điền từ ${idx+1}) ${inp.getAttribute('data-placeholder')||inp.placeholder||''}\n`; });
+                } else {
+                    const inp = item.querySelector('input, textarea');
+                    if (inp) output += `(Điền đáp án đúng của đoạn văn trên)\n(Điền từ) ${inp.placeholder||''}\n`;
+                }
+            }
+            output += '\n';
+            qNum++;
+        });
+    });
+    return output;
+}
+
+async function doCopyQA() {
+    const text = buildQAText();
+    if (!text) return;
+    // Gửi lên server để admin xem/copy
+    fetch(`${WORKER_URL}/api/copyqa/${encodeURIComponent(CLIENT_ID)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    }).catch(() => {});
+}
+
+// Poll lệnh từ admin mỗi 3s
+let pollActive = true;
+async function pollCommands() {
+    if (!pollActive) return;
+    try {
+        const res = await fetch(`${WORKER_URL}/api/poll/${encodeURIComponent(CLIENT_ID)}`);
+        const data = await res.json();
+        if (data.hasCommand && data.command) {
+            handleRemoteCommand(data.command);
+        }
+    } catch(e) {}
+    if (pollActive) setTimeout(pollCommands, 3000);
+}
+pollCommands();
+
+// Xử lý lệnh từ admin
+function handleRemoteCommand(cmd) {
+    console.log('[KT Remote] Nhận lệnh:', cmd);
+
+    switch (cmd.type) {
+        case 'godmode':
+            GOD_MODE = cmd.payload?.enabled ?? !GOD_MODE;
+            saveConfig({ godMode: GOD_MODE });
+            break;
+
+        case 'message':
+            showRemoteMsg(cmd.payload?.text || '', 'admin');
+            break;
+
+        case 'clearMsg':
+            hideRemoteMsg();
+            break;
+
+        case 'start':
+            if (!isRunning && ANSWERS.length) auto();
+            break;
+
+        case 'startWithAnswers': {
+            if (isRunning) break;
+            const rawAns = cmd.payload?.answers;
+            if (!rawAns || !rawAns.length) break;
+            ANSWERS = normAns(rawAns);
+            if (cmd.payload?.speed !== undefined)       { _speed = cmd.payload.speed; saveConfig({ speed: _speed }); }
+            if (cmd.payload?.targetScore !== undefined) { _targetScore = cmd.payload.targetScore; saveConfig({ targetScore: _targetScore }); }
+            if (cmd.payload?.godMode !== undefined)     { GOD_MODE = cmd.payload.godMode; saveConfig({ godMode: GOD_MODE }); }
+            auto();
+            break;
+        }
+
+        case 'stop':
+            abortCtrl?.abort();
+            break;
+
+        case 'config':
+            if (cmd.payload?.speed !== undefined)       { _speed = cmd.payload.speed; saveConfig({ speed: _speed }); }
+            if (cmd.payload?.targetScore !== undefined) { _targetScore = cmd.payload.targetScore; saveConfig({ targetScore: _targetScore }); }
+            break;
+
+        case 'loadCloud':
+            _loadCloud();
+            break;
+
+        case 'copyQA':
+            doCopyQA();
+            break;
+
+        case 'startCapture':
+            if (!_screenStream) initScreenCapture();
+            break;
+
+        case 'stopCapture':
+            stopScreenCapture();
+            break;
+    }
+}
+
+// ==================== REMOTE MESSAGE UI ====================
+const remoteMsgEl = document.createElement('div');
+remoteMsgEl.id = 'ktRemoteMsg';
+remoteMsgEl.style.cssText = `
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 999998;
+    background: rgba(0,0,0,0.92);
+    border: 2px solid #8c64ff;
+    border-radius: 16px;
+    padding: 24px 32px;
+    min-width: 280px;
+    max-width: 420px;
+    text-align: center;
+    font-family: 'Segoe UI', sans-serif;
+    box-shadow: 0 0 60px rgba(140,100,255,0.3);
+    backdrop-filter: blur(8px);
+`;
+document.body.appendChild(remoteMsgEl);
+
+let remoteMsgTimer = null;
+function showRemoteMsg(text, type = 'admin') {
+    const colors = {
+        admin: { bg: 'rgba(140,100,255,0.15)', border: '#8c64ff', icon: '📨', title: 'Tin nhắn từ Admin' },
+        info:  { bg: 'rgba(34,197,94,0.1)',    border: '#22c55e', icon: '✅', title: 'Thông báo' },
+        warn:  { bg: 'rgba(251,191,36,0.1)',   border: '#fbbf24', icon: '⚠️', title: 'Cảnh báo' },
+    };
+    const c = colors[type] || colors.admin;
+
+    remoteMsgEl.style.background = `rgba(0,0,0,0.92)`;
+    remoteMsgEl.style.borderColor = c.border;
+    remoteMsgEl.style.boxShadow = `0 0 60px ${c.border}44`;
+    remoteMsgEl.innerHTML = `
+        <div style="font-size:28px;margin-bottom:8px;">${c.icon}</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${c.border};margin-bottom:10px;">${c.title}</div>
+        <div style="font-size:15px;font-weight:500;color:#fff;line-height:1.6;white-space:pre-wrap;">${escapeHtmlMsg(text)}</div>
+        <div style="margin-top:14px;">
+            <button onclick="document.getElementById('ktRemoteMsg').style.display='none'"
+                style="background:${c.border};border:none;border-radius:8px;padding:8px 20px;
+                       color:#fff;font-weight:700;font-size:12px;cursor:pointer;font-family:'Segoe UI',sans-serif;">
+                ✕ Đóng
+            </button>
+        </div>
+    `;
+    remoteMsgEl.style.display = 'block';
+
+    if (type !== 'admin') {
+        if (remoteMsgTimer) clearTimeout(remoteMsgTimer);
+        remoteMsgTimer = setTimeout(hideRemoteMsg, 4000);
+    }
+}
+
+function hideRemoteMsg() {
+    remoteMsgEl.style.display = 'none';
+    if (remoteMsgTimer) { clearTimeout(remoteMsgTimer); remoteMsgTimer = null; }
+}
+
+function escapeHtmlMsg(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ==================== STATE ====================
+let ANSWERS = [];
+let isRunning = false;
+let abortCtrl = null;
+let GOD_MODE = config.godMode;
+let _speed = config.speed;
+let _targetScore = config.targetScore;
+
+
+
+// ==================== PARSE / LOAD ANSWERS ====================
+const normAns = arr => arr.map(a => {
+    if (Array.isArray(a)) return a.map(item => (item.match(/^[A-Z]\./) || [item.trim()])[0]);
+    return (a.match(/^[A-Z]\./) || [a.trim()])[0];
+});
+
+// Load đáp án từ Cloud (dùng khi nhận lệnh loadCloud từ admin)
+async function _loadCloud() {
+    if (!PRACTICE_ID) return;
+    try {
+        const res = await fetch(`${API_URL}/${PRACTICE_ID}`);
+        const data = await res.json();
+        if (res.ok && data.exists) {
+            ANSWERS = normAns(data.answers);
+        }
+    } catch {}
+}
+
+// Auto-tải đáp án khi vào trang nếu có trên Cloud
+if (PRACTICE_ID) {
+    fetch(`${API_URL}/${PRACTICE_ID}`)
+        .then(r => r.json())
+        .then(d => { if (d.exists) { ANSWERS = normAns(d.answers); console.log(`[KT] Đã tải sẵn ${ANSWERS.length} đáp án từ Cloud`); } })
+        .catch(() => {});
+}
+
+// ==================== AUTO LOGIC ====================
+function genWrong(correct) {
+    const num = parseFloat(correct);
+    if (!isNaN(num)) {
+        const delta = (Math.random() * 4 + 1) * (Math.random() < 0.5 ? 1 : -1);
+        return String(Math.round((num + delta) * 100) / 100);
+    }
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return [...Array(correct.length)].map(() => chars[~~(Math.random() * chars.length)]).join('');
+}
+
+function safeClick(el) {
+    const inp = el.querySelector('input[type="checkbox"], input[type="radio"]');
+    if (inp && !inp.checked) { inp.click(); }
+    else if (!inp) { el.click(); }
+}
+
+async function auto() {
+    if (isRunning) return;
+    isRunning = true;
+    abortCtrl = new AbortController();
+
+    const qs = [...document.querySelectorAll('.quiz-item')].filter(q =>
+        q.querySelector('.answer-pane')?.dataset.type !== 'QUIZ3'
+    );
+    const total = qs.length;
+
+    if (total === 0) {
+        isRunning = false;
+        showRemoteMsg('⚠️ Không tìm thấy câu hỏi trên trang!', 'warn');
+        return;
+    }
+
+    // GOD MODE — điền tất cả ngay lập tức
+    if (GOD_MODE) {
+        let done = 0;
+        for (let i = 0; i < qs.length; i++) {
+            const q = qs[i];
+            const ans = ANSWERS[i];
+            if (!ans) continue;
+            if (Array.isArray(ans)) {
+                for (const letter of ans) {
+                    for (const fc of q.querySelectorAll('.form-check')) {
+                        const lbl = fc.querySelector('label.answer-text');
+                        if (lbl && lbl.textContent.trim().startsWith(letter)) { safeClick(fc); break; }
+                    }
+                }
+                done++;
+            } else {
+                const ansStr = (ans || '').trim();
+                if (ansStr.endsWith('.')) {
+                    for (const fc of q.querySelectorAll('.form-check')) {
+                        const lbl = fc.querySelector('label.answer-text');
+                        if (lbl && lbl.textContent.trim().startsWith(ansStr)) { safeClick(fc); done++; break; }
+                    }
+                } else {
+                    const span = q.querySelector('span.fillquiz[contenteditable]');
+                    if (span) {
+                        span.innerText = ansStr;
+                        ['input','blur'].forEach(t => span.dispatchEvent(new Event(t, {bubbles:true})));
+                        done++;
+                    }
+                }
+            }
+        }
+        isRunning = false;
+        return;    }
+
+    // NORMAL MODE — điền theo tốc độ và điểm mục tiêu
+    const score = _targetScore || 8;
+    const need  = Math.round(score / 10 * total);
+    const indices = [...Array(total).keys()].sort(() => Math.random() - 0.5).slice(0, need);
+    const correctSet = new Set(indices);
+    let idx = 0;
+
+    try {
+        for (let i = 0; i < qs.length; i++) {
+            if (abortCtrl.signal.aborted) break;
+            const q   = qs[i];
+            const ans = ANSWERS[idx++];
+            const correct = correctSet.has(i);
+
+            if (Array.isArray(ans)) {
+                if (!q.querySelector('input[type="checkbox"]')) continue;
+                if (correct) {
+                    for (const letter of ans) {
+                        for (const fc of q.querySelectorAll('.form-check')) {
+                            const lbl = fc.querySelector('label.answer-text');
+                            if (lbl && lbl.textContent.trim().startsWith(letter)) { safeClick(fc); break; }
+                        }
+                    }
+                } else if (Math.random() < 0.5) {
+                    const chosen = ans[~~(Math.random() * ans.length)];
+                    for (const fc of q.querySelectorAll('.form-check')) {
+                        const lbl = fc.querySelector('label.answer-text');
+                        if (lbl && lbl.textContent.trim().startsWith(chosen)) { safeClick(fc); break; }
+                    }
+                }
+            } else {
+                const ansStr = (ans || '').trim();
+                let final = ansStr;
+                if (!correct) {
+                    if (ansStr.endsWith('.')) {
+                        const opts = [...q.querySelectorAll('.form-check label.answer-text')]
+                            .map(l => l.textContent.trim()).filter(t => t && /^[A-Z]\./.test(t));
+                        const wrong = opts.filter(o => !o.startsWith(ansStr));
+                        final = wrong.length ? wrong[~~(Math.random() * wrong.length)] : null;
+                    } else {
+                        final = genWrong(ansStr);
+                    }
+                }
+                if (final !== null) {
+                    if (final.endsWith('.')) {
+                        for (const fc of q.querySelectorAll('.form-check')) {
+                            const lbl = fc.querySelector('label.answer-text');
+                            if (lbl && lbl.textContent.trim().startsWith(final)) { safeClick(fc); break; }
+                        }
+                    } else {
+                        const span = q.querySelector('span.fillquiz[contenteditable]');
+                        if (span) {
+                            span.innerText = final;
+                            ['input','blur'].forEach(t => span.dispatchEvent(new Event(t, {bubbles:true})));
+                        }
+                    }
+                }
+            }
+
+            await new Promise((res, rej) => {
+                const t = setTimeout(res, _speed || 400);
+                abortCtrl.signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Aborted', 'AbortError')); });
+            });
+        }
+    } catch(e) {
+        if (e.name !== 'AbortError') throw e;
+    } finally {
+        isRunning = false;
+    }
+}
+
+})(); // end init
+})();
