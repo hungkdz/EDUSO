@@ -635,10 +635,6 @@ function showFingerHint(msg) {
     if (fingerHintTimer) clearTimeout(fingerHintTimer);
     fingerHintTimer = setTimeout(() => fingerHint.classList.remove('show'), 1500);
 }
-
-// Show hint once on load so user knows
-setTimeout(() => showFingerHint('👆👆👆 Chạm 3 ngón để bật/tắt UI'), 800);
-
 let threeFingerTimeout = null;
 
 document.addEventListener('touchstart', (e) => {
@@ -658,11 +654,9 @@ document.addEventListener('touchstart', (e) => {
     if (isVisible) {
         ui.style.display = 'none';
         saveConfig({ minimized: true });
-        showFingerHint('🙈 UI đã ẩn');
     } else {
         ui.style.display = 'block';
         saveConfig({ minimized: false });
-        showFingerHint('👁️ UI đã hiện');
     }
 }, { passive: true });
 
@@ -813,7 +807,6 @@ if (GOD_MODE) godModeToggle.classList.add('active');
 minBtn.onclick = () => {
     ui.style.display = 'none';
     saveConfig({ minimized: true });
-    showFingerHint('🙈 UI đã ẩn');
 };
 
 // ==================== GOD MODE TOGGLE ====================
