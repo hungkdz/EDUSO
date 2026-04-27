@@ -1,3 +1,15 @@
+// ==UserScript==
+// @name         EDUSO AUTO v20.0 — AI Tích Hợp + Smart Format
+// @namespace    https://eduso-auto
+// @version      20.0
+// @description  UI cuộn - AI Tích hợp - Smart format đáp án - Stealth unlock
+// @author       Nguyen
+// @match        https://practice.eduso.vn/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @run-at       document-start
+// ==/UserScript==
+
 (function () {
 'use strict';
 
@@ -109,355 +121,238 @@ Quy tắc BẮT BUỘC:
     // ==================== STYLES ====================
     const styles = document.createElement('style');
     styles.textContent = `
+/* ── EDUSO AUTO v20.1 — Blox Fruit Style ── */
 #edusoBloxUI {
     position: fixed;
-    width: 250px;
-    background: rgba(10,8,20,0.97);
-    border: 1.5px solid rgba(177,156,217,0.5);
-    border-radius: 14px;
+    width: 240px;
+    background: rgba(0,0,0,0.92);
+    border: 2px solid #b19cd9;
+    border-radius: 12px;
     font-family: 'Segoe UI', Arial, sans-serif;
-    color: #ffffff;
+    color: #fff;
     font-size: 12px;
     z-index: 99999;
     will-change: transform;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(177,156,217,0.1);
-    display: flex;
-    flex-direction: column;
-    max-height: 90vh;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.8);
     overflow: hidden;
 }
+
+/* HEADER — kéo để di chuyển */
 #edusoBloxUI .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 12px 8px;
-    border-bottom: 1px solid rgba(177,156,217,0.2);
+    padding: 8px 10px;
+    background: rgba(155,89,182,0.15);
+    border-bottom: 1px solid rgba(177,156,217,0.35);
     cursor: grab;
     user-select: none;
-    flex-shrink: 0;
-    background: rgba(155,89,182,0.08);
 }
 #edusoBloxUI .header:active { cursor: grabbing; }
-#edusoBloxUI .header-title {
-    font-weight: 800;
-    font-size: 13px;
-    color: #ffffff;
-    letter-spacing: 0.5px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-#edusoBloxUI .header-title .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: #9b59b6;
-    box-shadow: 0 0 6px #9b59b6;
-    animation: dotPulse 2s ease infinite;
-}
-@keyframes dotPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+#edusoBloxUI .header-title { font-weight: 800; font-size: 13px; color: #fff; line-height: 1; }
 
-#edusoScrollBody {
+/* FIXED TOP SECTION */
+#edusoFixedTop {
+    padding: 10px 10px 0;
+}
+
+/* SCROLLABLE MIDDLE — chỉ phần tùy chỉnh */
+#edusoScrollMid {
+    max-height: 160px;
     overflow-y: auto;
     overflow-x: hidden;
-    flex: 1;
-    padding: 10px 12px;
+    padding: 6px 10px 2px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(177,156,217,0.3) transparent;
+    scrollbar-color: rgba(177,156,217,0.4) transparent;
 }
-#edusoScrollBody::-webkit-scrollbar { width: 4px; }
-#edusoScrollBody::-webkit-scrollbar-track { background: transparent; }
-#edusoScrollBody::-webkit-scrollbar-thumb { background: rgba(177,156,217,0.3); border-radius: 2px; }
+#edusoScrollMid::-webkit-scrollbar { width: 3px; }
+#edusoScrollMid::-webkit-scrollbar-thumb { background: rgba(177,156,217,0.4); border-radius: 2px; }
 
-.section-label {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: rgba(177,156,217,0.6);
-    text-transform: uppercase;
-    margin-bottom: 6px;
-    margin-top: 2px;
-}
-.eduso-divider {
-    border: none;
-    border-top: 1px solid rgba(177,156,217,0.12);
-    margin: 8px 0;
+/* FIXED BOTTOM SECTION */
+#edusoFixedBot {
+    padding: 6px 10px 10px;
+    border-top: 1px solid rgba(177,156,217,0.18);
 }
 
-.input-section { margin-bottom: 8px; }
-.ans-label {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
-    font-size: 10px;
-    color: rgba(255,255,255,0.7);
-}
-.badge {
-    background: rgba(155,89,182,0.25);
-    border: 1px solid rgba(177,156,217,0.4);
-    color: #b19cd9;
-    font-size: 9px;
-    padding: 2px 7px;
-    border-radius: 10px;
-    font-weight: 700;
-}
-#edusoBloxUI textarea {
-    width: 100%;
-    padding: 7px 8px;
-    background: rgba(0,0,0,0.5);
-    border: 1px solid rgba(177,156,217,0.2);
-    border-radius: 7px;
-    color: #fff;
-    font-size: 10px;
-    resize: vertical;
-    font-family: 'Consolas', monospace;
-    box-sizing: border-box;
-    line-height: 1.4;
-}
-#edusoBloxUI textarea:focus { outline: none; border-color: rgba(177,156,217,0.5); }
-
-.btn-row { display: flex; gap: 6px; margin-bottom: 6px; }
-.btn-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 6px; }
-.btn-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-
+/* ── BUTTONS ── */
 .blox-btn {
-    background: rgba(155,89,182,0.2);
-    border: 1px solid rgba(177,156,217,0.35);
-    border-radius: 7px;
+    background: #9b59b6;
+    border: 2px solid #7d3c98;
+    border-radius: 8px;
     color: #fff;
     font-weight: 700;
-    font-size: 10px;
+    font-size: 11px;
     cursor: pointer;
     padding: 7px 10px;
-    transition: all 0.15s;
+    transition: background 0.15s;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.2;
 }
-.blox-btn:hover { background: rgba(155,89,182,0.4); border-color: rgba(177,156,217,0.6); }
-.blox-btn:active { transform: scale(0.97); }
-.blox-btn-primary { background: rgba(155,89,182,0.5); border-color: rgba(177,156,217,0.7); }
-.blox-btn-primary:hover { background: rgba(155,89,182,0.7); }
-.blox-btn-danger { background: rgba(192,57,43,0.5); border-color: rgba(231,76,60,0.5); }
-.blox-btn-danger:hover { background: rgba(192,57,43,0.7); }
-.blox-btn-green { background: rgba(30,126,52,0.5); border-color: rgba(40,167,69,0.5); }
-.blox-btn-green:hover { background: rgba(30,126,52,0.7); }
+.blox-btn:hover { background: #ae7dc0; }
+.blox-btn:active { filter: brightness(0.9); }
+.blox-btn-secondary { background: #666; border-color: #444; }
+.blox-btn-secondary:hover { background: #888; }
+.blox-btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+.blox-btn-danger { background: #c0392b; border-color: #922b21; }
+.blox-btn-danger:hover { background: #e74c3c; }
 .blox-btn-icon {
-    width: 28px; height: 28px;
-    padding: 0;
+    width: 26px; height: 26px; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 7px;
-    flex-shrink: 0;
-    font-size: 13px;
+    border-radius: 6px; flex-shrink: 0; font-size: 12px; line-height: 1;
 }
-.blox-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.blox-btn-full { width: 100%; }
 
-.file-wrapper { position: relative; flex: 1; }
-.file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2; }
-.file-label {
-    display: flex; align-items: center; justify-content: center; gap: 5px;
-    padding: 7px 8px;
-    background: rgba(0,0,0,0.4);
-    border: 1px solid rgba(177,156,217,0.25);
-    border-radius: 7px;
-    cursor: pointer; font-size: 10px; color: rgba(255,255,255,0.8);
-    font-weight: 600;
-}
-.file-label:hover { border-color: rgba(177,156,217,0.5); }
+/* ── GRID LAYOUTS ── */
+.btn-g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.btn-g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
 
-.toggle-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 8px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(177,156,217,0.15);
-    border-radius: 7px;
-    margin-bottom: 6px;
-}
-.toggle-label { font-size: 10px; color: rgba(255,255,255,0.85); font-weight: 600; }
-.toggle-switch {
-    position: relative; width: 34px; height: 18px;
-    background: rgba(0,0,0,0.5);
+/* ── TEXTAREA ── */
+#edusoBloxUI textarea {
+    width: 100%; padding: 6px 8px;
+    background: rgba(0,0,0,0.6);
     border: 1px solid rgba(177,156,217,0.3);
-    border-radius: 18px; cursor: pointer; transition: background 0.2s;
-    flex-shrink: 0;
-}
-.toggle-switch.active { background: rgba(155,89,182,0.8); border-color: #b19cd9; }
-.toggle-thumb {
-    position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
-    background: #888; border-radius: 50%; transition: left 0.2s, background 0.2s;
-}
-.toggle-switch.active .toggle-thumb { left: 18px; background: #fff; }
-
-.slider-section { margin-bottom: 8px; }
-.slider-header { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10px; }
-.slider-label { color: rgba(255,255,255,0.7); }
-.slider-value { color: #b19cd9; font-weight: 700; }
-#edusoBloxUI input[type="range"] {
-    width: 100%; height: 4px;
-    background: rgba(177,156,217,0.15);
-    border-radius: 2px; outline: none; -webkit-appearance: none;
-    border: none;
-}
-#edusoBloxUI input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 13px; height: 13px;
-    background: #9b59b6; border-radius: 50%; cursor: pointer;
-    box-shadow: 0 0 4px rgba(155,89,182,0.6);
-}
-#edusoBloxUI input[type="range"]::-moz-range-thumb {
-    width: 13px; height: 13px; background: #9b59b6;
-    border-radius: 50%; cursor: pointer; border: none;
-}
-
-.stats-row {
-    display: flex; justify-content: space-around; padding: 6px 0;
-    border: 1px solid rgba(177,156,217,0.15);
-    border-radius: 7px; margin-bottom: 8px;
-    background: rgba(0,0,0,0.2);
-}
-.stat-item { text-align: center; }
-.stat-num { font-size: 14px; font-weight: 800; color: #b19cd9; display: block; }
-.stat-lbl { font-size: 8px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; }
-
-.status-bar {
-    text-align: center; font-size: 10px; color: rgba(255,255,255,0.85);
-    padding: 6px 8px;
-    background: rgba(0,0,0,0.3);
-    border-radius: 7px;
-    border: 1px solid rgba(177,156,217,0.12);
-    margin-bottom: 8px;
-    min-height: 28px;
-    display: flex; align-items: center; justify-content: center;
-    line-height: 1.4;
-}
-
-/* AI status */
-.ai-status-bar {
-    text-align: center; font-size: 10px;
-    padding: 5px 8px;
-    background: rgba(0,0,0,0.3);
-    border-radius: 7px;
-    border: 1px solid rgba(177,156,217,0.12);
-    margin-bottom: 6px;
-    min-height: 26px;
-    display: flex; align-items: center; justify-content: center;
-    color: rgba(255,255,255,0.5);
-    line-height: 1.4;
-    word-break: break-word;
-}
-.ai-status-bar.loading { color: #ffd93d; border-color: rgba(255,217,61,0.2); animation: aiPulse 1.2s ease infinite; }
-.ai-status-bar.ok { color: #51cf66; border-color: rgba(81,207,102,0.2); }
-.ai-status-bar.err { color: #ff6b6b; border-color: rgba(255,107,107,0.2); }
-@keyframes aiPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-
-.ai-progress { height: 3px; border-radius: 2px; margin-bottom: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
-.ai-progress-bar {
-    height: 100%; border-radius: 2px;
-    background: linear-gradient(90deg, #9b59b6, #3498db);
-    width: 0%; transition: width 0.3s ease;
-}
-
-/* Settings modal */
-#edusoSettingsModal {
-    position: fixed; inset: 0; z-index: 999999;
-    display: none; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
-}
-#edusoSettingsModal.visible { display: flex; }
-#edusoSettingsBox {
-    background: linear-gradient(160deg, #1a0a2e 0%, #0d0d1a 100%);
-    border: 1.5px solid rgba(177,156,217,0.5);
-    border-radius: 14px; padding: 22px 20px 18px;
-    width: 300px;
-    box-shadow: 0 0 40px rgba(155,89,182,0.2);
-    font-family: 'Segoe UI', Arial, sans-serif;
-    animation: settingsPop 0.2s cubic-bezier(0.34,1.56,0.64,1);
-}
-@keyframes settingsPop { from{transform:scale(.9);opacity:0} to{transform:scale(1);opacity:1} }
-#edusoSettingsBox .settings-title {
-    font-size: 13px; font-weight: 800; color: #b19cd9;
-    margin-bottom: 14px; display: flex; align-items: center; gap: 6px;
-}
-.settings-group { margin-bottom: 12px; }
-.settings-group label { display: block; font-size: 10px; color: rgba(255,255,255,0.6); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
-.settings-input {
-    width: 100%; padding: 8px 10px;
-    background: rgba(0,0,0,0.5);
-    border: 1px solid rgba(177,156,217,0.3);
-    border-radius: 7px;
-    color: #fff; font-size: 11px;
+    border-radius: 6px;
+    color: #fff; font-size: 10px;
+    resize: none;
     font-family: 'Consolas', monospace;
-    box-sizing: border-box; outline: none;
+    box-sizing: border-box;
+    line-height: 1.4;
 }
-.settings-input:focus { border-color: rgba(177,156,217,0.6); }
-.settings-hint { font-size: 9px; color: rgba(255,255,255,0.3); margin-top: 4px; }
-.settings-hint a { color: #b19cd9; text-decoration: none; }
-.settings-btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.settings-save { background: rgba(155,89,182,0.5); border: 1px solid rgba(177,156,217,0.5); border-radius: 7px; color: #fff; font-weight: 700; font-size: 11px; cursor: pointer; padding: 8px 18px; }
-.settings-save:hover { background: rgba(155,89,182,0.7); }
-.settings-cancel { background: rgba(255,255,255,0.06); border: 1px solid rgba(177,156,217,0.2); border-radius: 7px; color: rgba(255,255,255,0.7); font-weight: 600; font-size: 11px; cursor: pointer; padding: 8px 14px; }
-.settings-cancel:hover { background: rgba(255,255,255,0.1); }
+#edusoBloxUI textarea:focus { outline: none; border-color: #b19cd9; }
 
-/* Dock */
+/* ── LABEL / BADGE ── */
+.ans-label {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px; font-size: 10px; color: rgba(255,255,255,0.7);
+}
+.badge {
+    background: rgba(155,89,182,0.2); border: 1px solid #b19cd9;
+    color: #b19cd9; font-size: 9px; padding: 1px 6px;
+    border-radius: 8px; font-weight: 700;
+}
+
+/* ── FILE BUTTON ── */
+.file-wrapper { position: relative; }
+.file-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; z-index: 2; width: 100%; height: 100%; }
+.file-label {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 7px 6px; background: #666; border: 2px solid #444;
+    border-radius: 8px; cursor: pointer; font-size: 11px; color: #fff;
+    font-weight: 700; white-space: nowrap;
+}
+.file-label:hover { background: #888; }
+
+/* ── AI STATUS ── */
+.ai-status-bar {
+    font-size: 9px; color: rgba(255,255,255,0.5);
+    padding: 4px 6px; margin-top: 5px; margin-bottom: 2px;
+    background: rgba(0,0,0,0.3); border-radius: 5px;
+    border: 1px solid rgba(177,156,217,0.15);
+    text-align: center; min-height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1.3; word-break: break-word;
+}
+.ai-status-bar.loading { color: #ffd93d; animation: aiPulse 1.2s ease infinite; }
+.ai-status-bar.ok  { color: #51cf66; }
+.ai-status-bar.err { color: #ff6b6b; }
+@keyframes aiPulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.ai-progress { height: 2px; border-radius: 1px; margin-bottom: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.ai-progress-bar { height: 100%; border-radius: 1px; background: linear-gradient(90deg,#9b59b6,#3498db); width: 0%; transition: width 0.3s ease; }
+
+/* ── DIVIDER ── */
+.eduso-div { border: none; border-top: 1px solid rgba(177,156,217,0.2); margin: 6px 0; }
+
+/* ── TOGGLE ── */
+.toggle-panel { background: rgba(155,89,182,0.07); border: 1px solid rgba(177,156,217,0.3); border-radius: 6px; padding: 5px 8px; margin-bottom: 6px; }
+.toggle-row { display: flex; justify-content: space-between; align-items: center; }
+.toggle-label { font-size: 10px; color: #fff; font-weight: 600; }
+.toggle-switch { position: relative; width: 36px; height: 19px; background: rgba(0,0,0,0.6); border: 1px solid rgba(177,156,217,0.4); border-radius: 19px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+.toggle-switch.active { background: #9b59b6; border-color: #b19cd9; }
+.toggle-thumb { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; background: #555; border-radius: 50%; transition: left 0.2s, background 0.2s; }
+.toggle-switch.active .toggle-thumb { left: 19px; background: #1a1a1a; }
+
+/* ── SLIDERS ── */
+.slider-section { margin-bottom: 7px; }
+.slider-hdr { display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 10px; }
+.slider-lbl { color: rgba(255,255,255,0.7); }
+.slider-val { color: #b19cd9; font-weight: 700; }
+#edusoBloxUI input[type="range"] {
+    width: 100%; height: 5px;
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(177,156,217,0.3);
+    border-radius: 3px; outline: none; -webkit-appearance: none;
+}
+#edusoBloxUI input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; background: #9b59b6; border-radius: 50%; cursor: pointer; }
+#edusoBloxUI input[type="range"]::-moz-range-thumb { width: 13px; height: 13px; background: #9b59b6; border-radius: 50%; cursor: pointer; border: none; }
+
+/* ── SCROLL HINT ── */
+.scroll-hint {
+    text-align: center; font-size: 9px; color: rgba(177,156,217,0.5);
+    padding: 2px 0; letter-spacing: 0.3px;
+}
+
+/* ── STATS ── */
+.stats { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid rgba(177,156,217,0.25); border-bottom: 1px solid rgba(177,156,217,0.25); font-size: 11px; margin-bottom: 6px; }
+.stat-item { color: #fff; }
+.stat-value { color: #b19cd9; font-weight: 700; }
+
+/* ── STATUS BAR ── */
+.status { text-align: center; font-size: 10px; color: #fff; padding: 5px 6px; background: rgba(155,89,182,0.07); border-radius: 6px; border: 1px solid rgba(177,156,217,0.2); margin-bottom: 6px; min-height: 24px; display: flex; align-items: center; justify-content: center; }
+
+/* ── DOCK ── */
 #edsoDock {
-    position: fixed; width: 46px; height: 46px;
-    background: rgba(10,8,20,0.97);
-    border: 1.5px solid rgba(177,156,217,0.5);
-    border-radius: 50%;
+    position: fixed; width: 48px; height: 48px;
+    background: rgba(0,0,0,0.92); border: 2px solid #b19cd9; border-radius: 50%;
     display: none; align-items: center; justify-content: center;
-    cursor: pointer; z-index: 99999; font-size: 18px;
-    box-shadow: 0 4px 20px rgba(155,89,182,0.3);
+    cursor: pointer; z-index: 99999; font-size: 20px;
 }
+#edsoDock:hover { border-color: #c9b3e6; }
 
-/* Warning overlay */
-#edusoWarnOverlay {
-    position: fixed; inset: 0; z-index: 999998;
-    display: none; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.82); backdrop-filter: blur(6px);
-}
+/* ── SETTINGS MODAL ── */
+#edusoSettingsModal { position: fixed; inset: 0; z-index: 999999; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.75); backdrop-filter: blur(5px); }
+#edusoSettingsModal.visible { display: flex; }
+#edusoSettingsBox { background: linear-gradient(160deg,#1a0a2e 0%,#0d0d1a 100%); border: 2px solid #b19cd9; border-radius: 12px; padding: 20px 18px 16px; width: 290px; font-family: 'Segoe UI',Arial,sans-serif; animation: settPop 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+@keyframes settPop { from{transform:scale(.9);opacity:0} to{transform:scale(1);opacity:1} }
+.sett-title { font-size: 13px; font-weight: 800; color: #b19cd9; margin-bottom: 12px; }
+.sett-label { display: block; font-size: 9px; color: rgba(255,255,255,0.5); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.sett-input { width: 100%; padding: 7px 9px; background: rgba(0,0,0,0.5); border: 1px solid rgba(177,156,217,0.3); border-radius: 6px; color: #fff; font-size: 11px; font-family: 'Consolas',monospace; box-sizing: border-box; outline: none; }
+.sett-input:focus { border-color: #b19cd9; }
+.sett-hint { font-size: 9px; color: rgba(255,255,255,0.3); margin-top: 3px; }
+.sett-hint a { color: #b19cd9; text-decoration: none; }
+.sett-row { display: flex; gap: 7px; justify-content: flex-end; margin-top: 12px; }
+.sett-save { background: #9b59b6; border: 2px solid #7d3c98; border-radius: 7px; color: #fff; font-weight: 700; font-size: 11px; cursor: pointer; padding: 7px 16px; }
+.sett-save:hover { background: #ae7dc0; }
+.sett-cancel { background: rgba(255,255,255,.07); border: 1px solid rgba(177,156,217,.3); border-radius: 7px; color: rgba(255,255,255,.7); font-weight: 600; font-size: 11px; cursor: pointer; padding: 7px 12px; }
+.sett-cancel:hover { background: rgba(255,255,255,.12); }
+
+/* ── WARNING OVERLAY ── */
+#edusoWarnOverlay { position: fixed; inset: 0; z-index: 999998; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.82); backdrop-filter: blur(6px); }
 #edusoWarnOverlay.visible { display: flex; }
-#edusoWarnBox {
-    background: linear-gradient(160deg, #1a0a2e 0%, #0d0d1a 100%);
-    border: 2px solid #b19cd9; border-radius: 16px; padding: 28px 24px 20px;
-    width: 320px; text-align: center;
-    box-shadow: 0 0 40px rgba(177,156,217,0.2);
-    font-family: 'Segoe UI', Arial, sans-serif;
-    animation: boxSlideUp 0.25s cubic-bezier(0.34,1.56,0.64,1);
-}
-@keyframes boxSlideUp { from{transform:translateY(20px) scale(.95);opacity:0} to{transform:translateY(0) scale(1);opacity:1} }
-#edusoWarnBox .warn-icon { font-size: 36px; margin-bottom: 10px; }
-#edusoWarnBox .warn-title { font-size: 14px; font-weight: 800; color: #ffcc44; margin-bottom: 6px; }
-#edusoWarnBox .warn-timer { font-size: 26px; font-weight: 900; color: #ff6b6b; margin-bottom: 5px; letter-spacing: 2px; }
-#edusoWarnBox .warn-sub { font-size: 12px; color: rgba(255,255,255,0.8); margin-bottom: 16px; }
-#edusoWarnProgress { width:100%;height:4px;background:rgba(255,255,255,.1);border-radius:2px;margin-bottom:12px;overflow:hidden; }
+#edusoWarnBox { background: linear-gradient(160deg,#1a0a2e 0%,#0d0d1a 100%); border: 2px solid #b19cd9; border-radius: 14px; padding: 28px 22px 20px; width: 310px; text-align: center; box-shadow: 0 0 40px rgba(177,156,217,0.2); font-family: 'Segoe UI',Arial,sans-serif; animation: slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1); }
+@keyframes slideUp { from{transform:translateY(20px) scale(.95);opacity:0} to{transform:translateY(0) scale(1);opacity:1} }
+.warn-icon { font-size: 36px; margin-bottom: 8px; }
+.warn-timer { font-size: 26px; font-weight: 900; color: #ff6b6b; margin-bottom: 4px; letter-spacing: 2px; }
+#edusoWarnProgress { width:100%;height:4px;background:rgba(255,255,255,.1);border-radius:2px;margin-bottom:10px;overflow:hidden; }
 #edusoWarnProgressBar { height:100%;border-radius:2px;background:linear-gradient(90deg,#ff6b6b,#ffcc44);transition:width 1s linear; }
+.warn-title { font-size: 13px; font-weight: 800; color: #ffcc44; margin-bottom: 5px; }
+.warn-sub { font-size: 11px; color: rgba(255,255,255,.8); margin-bottom: 14px; }
 .warn-btn-row { display:flex;gap:8px;justify-content:center; }
-.warn-btn-confirm { background:#c0392b;border:1.5px solid #922b21;border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:8px 16px; }
+.warn-btn-confirm { background:#c0392b;border:2px solid #922b21;border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:7px 14px; }
 .warn-btn-confirm:hover { background:#e74c3c; }
-.warn-btn-cancel { background:rgba(255,255,255,.07);border:1.5px solid rgba(177,156,217,.4);border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:8px 16px; }
+.warn-btn-cancel { background:rgba(255,255,255,.07);border:1px solid rgba(177,156,217,.4);border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:7px 14px; }
 .warn-btn-cancel:hover { background:rgba(255,255,255,.12); }
 
-#edusoConfirmDialog {
-    position:fixed;inset:0;z-index:999999;display:none;
-    align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);
-}
+#edusoConfirmDialog { position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
 #edusoConfirmDialog.visible { display:flex; }
-#edusoConfirmBox {
-    background:linear-gradient(160deg,#1a0a2e 0%,#0d0d1a 100%);
-    border:1.5px solid #e74c3c;border-radius:13px;padding:24px 20px 18px;
-    width:280px;text-align:center;
-    box-shadow:0 0 30px rgba(231,76,60,.25);
-    font-family:'Segoe UI',Arial,sans-serif;animation:boxSlideUp 0.2s ease;
-}
-#edusoConfirmBox .confirm-icon { font-size:28px;margin-bottom:8px; }
-#edusoConfirmBox .confirm-title { font-size:13px;font-weight:800;color:#ff6b6b;margin-bottom:5px; }
-#edusoConfirmBox .confirm-sub { font-size:11px;color:rgba(255,255,255,.65);margin-bottom:16px;line-height:1.5; }
+#edusoConfirmBox { background:linear-gradient(160deg,#1a0a2e 0%,#0d0d1a 100%);border:2px solid #e74c3c;border-radius:12px;padding:22px 18px 16px;width:270px;text-align:center;font-family:'Segoe UI',Arial,sans-serif;animation:slideUp 0.2s ease; }
+.confirm-icon { font-size:28px;margin-bottom:8px; }
+.confirm-title { font-size:13px;font-weight:800;color:#ff6b6b;margin-bottom:5px; }
+.confirm-sub { font-size:11px;color:rgba(255,255,255,.65);margin-bottom:14px;line-height:1.5; }
 .confirm-btn-row { display:flex;gap:8px;justify-content:center; }
-.confirm-yes { background:#c0392b;border:1.5px solid #922b21;border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:8px 18px; }
+.confirm-yes { background:#c0392b;border:2px solid #922b21;border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:7px 16px; }
 .confirm-yes:hover { background:#e74c3c; }
-.confirm-no { background:rgba(255,255,255,.07);border:1.5px solid rgba(177,156,217,.4);border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:8px 18px; }
+.confirm-no { background:rgba(255,255,255,.07);border:1px solid rgba(177,156,217,.4);border-radius:7px;color:#fff;font-weight:700;font-size:11px;cursor:pointer;padding:7px 16px; }
 .confirm-no:hover { background:rgba(255,255,255,.12); }
 `;
     document.head.appendChild(styles);
@@ -473,94 +368,78 @@ Quy tắc BẮT BUỘC:
 
     ui.innerHTML = `
 <div class="header" id="edusoHeader">
-    <div class="header-title">
-        <div class="dot"></div>
-        EDUSO AUTO
-    </div>
+    <div class="header-title">⚡ EDUSO AUTO</div>
     <div style="display:flex;gap:4px;align-items:center;">
-        <button class="blox-btn blox-btn-icon" id="settingsBtn" title="Cài đặt" style="font-size:13px;">⚙️</button>
-        <button class="blox-btn blox-btn-icon" id="minBtn" title="Thu nhỏ" style="font-size:12px;">▾</button>
+        <button class="blox-btn blox-btn-icon" id="settingsBtn" title="API Key">⚙️</button>
+        <button class="blox-btn blox-btn-icon blox-btn-secondary" id="minBtn" title="Thu nhỏ">▾</button>
     </div>
 </div>
 
-<div id="edusoScrollBody">
-
-    <!-- ── ĐÁP ÁN ── -->
-    <div class="section-label">Đáp án</div>
-    <div class="input-section">
-        <div class="ans-label">
-            <span>📋 Nội dung</span>
-            <span class="badge" id="answerCount">0</span>
-        </div>
-        <textarea id="answerInput" rows="3" placeholder='["A.","B.","C."] hoặc ["Consider","B."]'></textarea>
+<!-- ══ FIXED TOP: Đáp án + Nút lấy ══ -->
+<div id="edusoFixedTop">
+    <div class="ans-label">
+        <span>📋 Đáp án</span>
+        <span class="badge" id="answerCount">0</span>
     </div>
+    <textarea id="answerInput" rows="2" placeholder='["A.","B."] hoặc ["Consider","B."]'></textarea>
 
-    <div class="btn-row-3" style="margin-bottom:8px;">
+    <div class="ai-status-bar" id="aiStatusEl">Nhấn 🤖 AI để lấy đáp án tự động</div>
+    <div class="ai-progress"><div class="ai-progress-bar" id="aiProgressBar"></div></div>
+
+    <div class="btn-g3" style="margin-bottom:8px;">
         <div class="file-wrapper">
             <input type="file" id="answerFile" accept=".txt,.json" class="file-input">
             <div class="file-label">📁 <span id="fileNameDisplay">File</span></div>
         </div>
-        <button class="blox-btn" id="loadCloudBtn">☁️ Cloud</button>
-        <button class="blox-btn blox-btn-primary" id="getAIBtn">🤖 AI</button>
+        <button class="blox-btn blox-btn-secondary" id="loadCloudBtn">☁️ Cloud</button>
+        <button class="blox-btn" id="getAIBtn">🤖 AI</button>
     </div>
 
-    <!-- AI status (nhỏ gọn) -->
-    <div class="ai-status-bar" id="aiStatusEl">Nhấn 🤖 AI để lấy đáp án từ AI</div>
-    <div class="ai-progress"><div class="ai-progress-bar" id="aiProgressBar"></div></div>
+    <hr class="eduso-div">
+</div>
 
-    <hr class="eduso-divider">
+<!-- ══ SCROLL MID: Tùy chỉnh ══ -->
+<div id="edusoScrollMid">
+    <div class="scroll-hint">▲ Tùy chỉnh · kéo lên/xuống ▼</div>
 
-    <!-- ── CÀI ĐẶT CHẠY ── -->
-    <div class="section-label">Tùy chỉnh</div>
-
-    <div class="toggle-row">
-        <div class="toggle-label">⚡ GOD MODE (tốc độ 1s)</div>
-        <div class="toggle-switch" id="godModeToggle"><div class="toggle-thumb"></div></div>
+    <div class="toggle-panel" style="margin-top:5px;">
+        <div class="toggle-row">
+            <div class="toggle-label">⚡ AUTO 1S (NGUY HIỂM)</div>
+            <div class="toggle-switch" id="godModeToggle"><div class="toggle-thumb"></div></div>
+        </div>
     </div>
 
     <div class="slider-section">
-        <div class="slider-header">
-            <span class="slider-label">⏱ Tốc độ</span>
-            <span class="slider-value" id="speedValue">${config.speed}ms</span>
+        <div class="slider-hdr">
+            <span class="slider-lbl">⏱ Tốc độ</span>
+            <span class="slider-val" id="speedValue">${config.speed}ms</span>
         </div>
         <input type="range" id="speedSlider" min="200" max="1500" value="${config.speed}" step="100">
     </div>
 
     <div class="slider-section">
-        <div class="slider-header">
-            <span class="slider-label">🎯 Điểm muốn đạt</span>
-            <span class="slider-value" id="scoreValue">${config.targetScore}/10</span>
+        <div class="slider-hdr">
+            <span class="slider-lbl">🎯 Điểm muốn đạt</span>
+            <span class="slider-val" id="scoreValue">${config.targetScore}/10</span>
         </div>
         <input type="range" id="scoreSlider" min="0" max="10" value="${config.targetScore}" step="1">
     </div>
+</div>
 
-    <hr class="eduso-divider">
-
-    <!-- ── THỐNG KÊ ── -->
-    <div class="stats-row">
-        <div class="stat-item">
-            <span class="stat-num" id="tong">0</span>
-            <span class="stat-lbl">Tổng</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-num" id="xong">0</span>
-            <span class="stat-lbl">Đã làm</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-num" id="con">0</span>
-            <span class="stat-lbl">Còn lại</span>
-        </div>
+<!-- ══ FIXED BOT: Stats + Status + Buttons ══ -->
+<div id="edusoFixedBot">
+    <div class="stats">
+        <div class="stat-item">Tổng: <span class="stat-value" id="tong">0</span></div>
+        <div class="stat-item">Làm: <span class="stat-value" id="xong">0</span></div>
+        <div class="stat-item">Còn: <span class="stat-value" id="con">0</span></div>
     </div>
-
-    <div class="status-bar" id="status">🎯 Muốn đạt: ${config.targetScore} điểm</div>
-
-    <!-- ── ĐIỀU KHIỂN ── -->
-    <div class="btn-row-2">
-        <button class="blox-btn blox-btn-primary" id="startBtn">▶ START</button>
-        <button class="blox-btn blox-btn-danger" id="stopBtn" disabled>■ STOP</button>
+    <div class="status" id="status">🎯 Muốn đạt: ${config.targetScore} điểm</div>
+    <div class="btn-g2">
+        <button class="blox-btn" id="startBtn">▶ START</button>
+        <button class="blox-btn blox-btn-danger blox-btn-secondary" id="stopBtn" disabled>■ STOP</button>
     </div>
-
-</div>`;
+</div>
+`;
 
     document.body.appendChild(ui);
 
@@ -580,15 +459,13 @@ Quy tắc BẮT BUỘC:
     settingsModal.id = 'edusoSettingsModal';
     settingsModal.innerHTML = `
 <div id="edusoSettingsBox">
-    <div class="settings-title">⚙️ Cài đặt API</div>
-    <div class="settings-group">
-        <label>OpenRouter API Key</label>
-        <input type="password" class="settings-input" id="settingsKeyInput" placeholder="sk-or-v1-...">
-        <div class="settings-hint">Lấy key tại <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> · Model: GPT-4o</div>
-    </div>
-    <div class="settings-btn-row">
-        <button class="settings-cancel" id="settingsCancelBtn">Hủy</button>
-        <button class="settings-save" id="settingsSaveBtn">💾 Lưu</button>
+    <div class="sett-title">⚙️ Cài đặt API Key</div>
+    <label class="sett-label">OpenRouter API Key</label>
+    <input type="password" class="sett-input" id="settingsKeyInput" placeholder="sk-or-v1-...">
+    <div class="sett-hint">Lấy key tại <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> · Model: GPT-4o</div>
+    <div class="sett-row">
+        <button class="sett-cancel" id="settingsCancelBtn">Hủy</button>
+        <button class="sett-save" id="settingsSaveBtn">💾 Lưu</button>
     </div>
 </div>`;
     document.body.appendChild(settingsModal);
@@ -704,7 +581,7 @@ Quy tắc BẮT BUỘC:
     settingsCancelBtn.onclick = () => settingsModal.classList.remove('visible');
     settingsSaveBtn.onclick = () => {
         const v = settingsKeyInput.value.trim();
-        if (v) { saveAIKey(v); settingsSaveBtn.textContent = '✅ Đã lưu!'; setTimeout(() => { settingsSaveBtn.textContent = '💾 Lưu'; settingsModal.classList.remove('visible'); }, 900); }
+        if (v) { saveAIKey(v); settingsSaveBtn.textContent = '✅ Lưu!'; setTimeout(() => { settingsSaveBtn.textContent = '💾 Lưu'; settingsModal.classList.remove('visible'); }, 900); }
         else { settingsKeyInput.style.borderColor = 'rgba(231,76,60,0.7)'; setTimeout(() => settingsKeyInput.style.borderColor = '', 1500); }
     };
     settingsModal.addEventListener('mousedown', e => { if (e.target === settingsModal) settingsModal.classList.remove('visible'); });
@@ -960,38 +837,35 @@ Quy tắc BẮT BUỘC:
     }
 
     // ==================== AI CALL ====================
-    function callOpenRouter(userMessage) {
-        return new Promise((resolve, reject) => {
-            const key = getAIKey();
-            if (!key) { reject(new Error('NO_KEY')); return; }
-            GM_xmlhttpRequest({
-                method: 'POST',
-                url: 'https://openrouter.ai/api/v1/chat/completions',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + key,
-                    'HTTP-Referer': location.origin,
-                    'X-Title': 'Eduso Auto'
-                },
-                data: JSON.stringify({
-                    model: AI_MODEL,
-                    max_tokens: 1024,
-                    temperature: 0.1,
-                    messages: [
-                        { role: 'system', content: AI_SYSTEM },
-                        { role: 'user', content: userMessage }
-                    ]
-                }),
-                onload(res) {
-                    try {
-                        const data = JSON.parse(res.responseText);
-                        if (data.error) { reject(new Error(data.error.message || 'API Error')); return; }
-                        resolve(data.choices?.[0]?.message?.content?.trim() || '');
-                    } catch(e) { reject(new Error('Parse error')); }
-                },
-                onerror() { reject(new Error('Không thể kết nối OpenRouter')); }
-            });
+    async function callOpenRouter(userMessage) {
+        const key = getAIKey();
+        if (!key) throw new Error('NO_KEY');
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + key,
+                'HTTP-Referer': location.origin,
+                'X-Title': 'Eduso Auto'
+            },
+            body: JSON.stringify({
+                model: AI_MODEL,
+                max_tokens: 1024,
+                temperature: 0.1,
+                messages: [
+                    { role: 'system', content: AI_SYSTEM },
+                    { role: 'user', content: userMessage }
+                ]
+            })
         });
+        if (!res.ok) {
+            let errMsg = 'HTTP ' + res.status;
+            try { const e = await res.json(); if (e.error?.message) errMsg = e.error.message; } catch {}
+            throw new Error(errMsg);
+        }
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || 'API Error');
+        return data.choices?.[0]?.message?.content?.trim() || '';
     }
 
     function parseAIResponse(text) {
